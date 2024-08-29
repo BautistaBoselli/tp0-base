@@ -48,6 +48,7 @@ def generate_clients(clients):
             f"      - CLI_ID={i}\n"
             "      - CLI_LOG_LEVEL=DEBUG\n"
         )
+        client_volumes = "    volumes:\n      - ./config:/config\n"
         client_networks = "    networks:\n      - testing_net\n"
         client_depends_on = "    depends_on:\n      - server\n"
 
@@ -57,6 +58,7 @@ def generate_clients(clients):
             client_image +
             client_entrypoint +
             client_environment +
+            client_volumes +
             client_networks +
             client_depends_on
         )
