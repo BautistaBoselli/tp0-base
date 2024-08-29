@@ -83,11 +83,7 @@ Para poder inyectar los archivos config a los containers se modifico el docker-c
 
 ### Ejercicio N°3:
 
-Crear un script de bash `validar-echo-server.sh` que permita verificar el correcto funcionamiento del servidor utilizando el comando `netcat` para interactuar con el mismo. Dado que el servidor es un EchoServer, se debe enviar un mensaje al servidor y esperar recibir el mismo mensaje enviado.
-
-En caso de que la validación sea exitosa imprimir: `action: test_echo_server | result: success`, de lo contrario imprimir:`action: test_echo_server | result: fail`.
-
-El script deberá ubicarse en la raíz del proyecto. Netcat no debe ser instalado en la máquina _host_ y no se puede exponer puertos del servidor para realizar la comunicación (hint: `docker network`). `
+Ademas del script se creo una carpeta con un dockerfile para este ejercicio, de esta manera se puede distinguir del resto de dockerfiles. En este se instala netcat encima de la imagen de ubuntu. Luego en el script pedido primero se obtiene el puerto del servidor del archivo de configuracion (evitando hardcodear valores) y se declara el mensaje con el que se va a testear el server (se puede modificar manualmente alli). Luego se ejecuta el make docker-compose-up para levantar el server, los clientes y la network (aunque en este ejercicio no nos interesa si hay o no clientes en la network). Luego se buildea la imagen del netcat y se ejecuta conectando el container a la network creada por el docker-compose. Luego le pedimos al container del netcat que haga echo al mensaje que declaramos anteriormente y mediante un pipe se lo enviamos al container del server que lo interpreta y responde con el mismo mensaje. Despues revisamos que la respuesta haya sido la misma que el mensaje enviado y devolvemos el input solicitado por la consigna. Finalmente se detiene el server y se limpia la network. Para correr el script se debe ejecutar el comando ./validar-echo-server.sh en la terminal.
 
 ### Ejercicio N°4:
 
