@@ -38,8 +38,17 @@ class Server:
                 self.__accept_new_connection()
                 self.__handle_client_connection()
             except OSError as e:
-                logging.error(f"action: accept_connections | result: fail | error: {e}")
+                """
+                If the SIGTERM signal is received while the server is blocked
+                listening an exception will be raised and in that case
+                the server will be gracefully shutdown
+                
+                """
+                self.current_client_socket.close()
+                self._server_socket.close()
                 break
+
+        
         
         
 
