@@ -46,7 +46,7 @@ def generate_clients(clients):
         client_environment = (
             "    environment:\n"
             f"      - CLI_ID={i}\n"
-            "      - CLI_LOG_LEVEL=DEBUG\n"
+            # "      - CLI_LOG_LEVEL=DEBUG\n"
         )
         # client_volumes = "    volumes:\n      - ./client/config.yaml:/config.yaml\n"
         # client_volumes = "    volumes:\n      - type: bind\n      - ./client/config.yaml:/config.yaml\n"
