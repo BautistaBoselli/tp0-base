@@ -87,7 +87,9 @@ Ademas del script se creo una carpeta con un dockerfile para este ejercicio, de 
 
 ### Ejercicio N°4:
 
-Modificar servidor y cliente para que ambos sistemas terminen de forma _graceful_ al recibir la signal SIGTERM. Terminar la aplicación de forma _graceful_ implica que todos los _file descriptors_ (entre los que se encuentran archivos, sockets, threads y procesos) deben cerrarse correctamente antes que el thread de la aplicación principal muera. Loguear mensajes en el cierre de cada recurso (hint: Verificar que hace el flag `-t` utilizado en el comando `docker compose down`).
+Se modificó el archivo de server.py para que el server al recibir la señal SIGTERM cierre el socket de un cliente si se hubiese quedado conectado, y luego cierre el socket del server y setee un bool que impide que el server siga loopeando, de esta forma quedan cerrados todos los sockets y puede detenerse adecuadamente el proceso.
+Para los clients se modificó el archivo de client.go para que al recibir la señal SIGTERM esta se coloque sobre un channel que se lee en cada iteración del loop de mensajes que se envian al server, de esta forma si se recibe la señal en medio de una iteración esta termina y luego en la posterior iteracion se cierra el socket y se detiene el loop.
+De esta forma conseguimos hacer un graceful shutdown tanto del server como de los clientes.
 
 ## Parte 2: Repaso de Comunicaciones
 
