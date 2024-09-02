@@ -18,7 +18,6 @@ class Server:
         self.stop_process = True
         self._server_socket.close()
         self.current_client_socket.close()
-        logging.info(f"action: shutdown | signal: {signum}")        
 
     def run(self):
         """
