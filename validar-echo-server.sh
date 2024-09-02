@@ -12,6 +12,8 @@ make docker-compose-up
 docker build -t ubuntu-nc ./ej3
 docker run -d -t --name netcat-client --network tp0_testing_net ubuntu-nc
 
+sleep 5
+
 RESPONSE=$(docker exec netcat-client sh -c "echo $ECHO_TEST | nc -w 10 server $SERVER_PORT")
 
 echo "Respuesta del servidor: $RESPONSE"
