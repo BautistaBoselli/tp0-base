@@ -79,7 +79,7 @@ Se creo el script de bash indicado y se restringio su uso a forzar que se manden
 
 ### Ejercicio N°2:
 
-Para poder inyectar los archivos config a los containers se modifico el docker-compose.yml para que los archivos de configuracion se monten en los containers a partir de guardarlos en volumenes. Esto permite que la imagen persista entre los cambios a los archivos de config, ya que al estructurarlo de esta manera, cuando ocurran cambios en los volumenes estos se inyectan en los contenedores al iniciarlos, a diferencia de lo previo donde al estar las configuraciones dentro de la imagen, al haber cambios estas se deben reconstruir. En cuanto a la solucion en si, decidi agrupar ambos archivos en una carpeta config en el root del proyecto, y luego en el docker-compose.yml se montan los volumenes en los containers.
+Para poder inyectar los archivos config a los containers se modifico el docker-compose.yml para que los archivos de configuracion se monten en los containers a partir de guardarlos en volumenes. Esto permite que la imagen persista entre los cambios a los archivos de config, ya que al estructurarlo de esta manera, cuando ocurran cambios en los volumenes estos se inyectan en los contenedores al iniciarlos, a diferencia de lo previo donde al estar las configuraciones dentro de la imagen, al haber cambios estas se deben reconstruir. En cuanto a la solucion en si, para poder ejecutar correctamente con los tests tuve que eliminar del docker compose y del script generador el tipo de log utilizado (info o debug) ya que al ejecutar las pruebas estas no se corrian adecuadamente. En el historial de commits todos los ultimos cambios y la reimplementacion del ej se deben a los tests que no corrian adecuadamente.
 
 ### Ejercicio N°3:
 
