@@ -1,5 +1,5 @@
 #!/bin/bash
-SERVER_PORT=$(awk -F '=' '/SERVER_PORT/ {gsub(/^[ \t]+|[ \t]+$/, "", $2); print $2}' "./config/config.ini")
+SERVER_PORT=$(awk -F '=' '/SERVER_PORT/ {gsub(/^[ \t]+|[ \t]+$/, "", $2); print $2}' "./server/config.ini")
 if [ -z "$SERVER_PORT" ]; then
     echo "SERVER_PORT no se encuentra en el archivo de configuración"
     exit 1
