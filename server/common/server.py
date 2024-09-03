@@ -4,7 +4,7 @@ import logging
 import signal
 import sys
 
-from common.utils import store_bets, decode_message
+from common.utils import store_bets, decode_message, Bet
 
 BET_MESSAGE_LENGTH = 4
 
@@ -66,13 +66,12 @@ class Server:
             
             msg = self.safe_read(msg_len_bytes)
             bets = decode_message(msg)
-            logging.info(f'action: receive_message | result: decoded | msg: {[bets]}')
 
             store_bets([bets])
             logging.info(f'action: store_bets | result: success | amount of bets: {len([bets])}')
             
             addr = self.current_client_socket.getpeername()
-            logging.info(f'action: receive_message | result: success | ip: {addr[0]} | msg: {msg}')
+            Bet.log_fields(bets, addr[0])
 
 
 
