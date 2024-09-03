@@ -66,11 +66,10 @@ func (c *Client) StartClientLoop() {
 			if c.conn != nil {
 				c.conn.Close()
 			}
-			log.Infof("action: client shutdown | result: success | client_id: %v", c.config.ID)
 			return
 		case <-time.After(c.config.LoopPeriod):
-
 		default:
+			// Create the connection the server in every loop iteration. Send an
 			c.createClientSocket()
 
 			// TODO: Modify the send to avoid short-write
@@ -100,7 +99,6 @@ func (c *Client) StartClientLoop() {
 			time.Sleep(c.config.LoopPeriod)
 
 		}
-
 		log.Infof("action: loop_finished | result: success | client_id: %v", c.config.ID)
 	}
 }

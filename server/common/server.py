@@ -1,3 +1,4 @@
+import signal
 import socket
 import logging
 import signal
@@ -10,14 +11,17 @@ class Server:
         self._server_socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
         self._server_socket.bind(('', port))
         self._server_socket.listen(listen_backlog)
+        self.stop_processes = False
         self.current_client_socket = None
-        self.stop_process = False
-        signal.signal(signal.SIGTERM, self.exit_gracefully)
+        signal.signal(signal.SIGTERM, self.graceful_shutdown)
 
-    def exit_gracefully(self, signum, frame):
-        self.stop_process = True
+    def graceful_shutdown(self, signum, frame):
+        
+        self.stop_processes = True
+        if self.current_client_socket:
+            self.current_client_socket.close()
         self._server_socket.close()
-        self.current_client_socket.close()
+
 
     def run(self):
         """
@@ -28,24 +32,20 @@ class Server:
         finishes, servers starts to accept new connections again
         """
 
-        while not self.stop_process:
+        # TODO: Modify this program to handle signal to graceful shutdown
+        # the server
+        while not self.stop_processes:
             try:
                 self.__accept_new_connection()
                 self.__handle_client_connection()
             except OSError as e:
-                """
-                If the SIGTERM signal is received while the server is blocked
-                listening an exception will be raised and in that case
-                the server will be gracefully shutdown
-                
-                """
-                self.current_client_socket.close()
+                if self.current_client_socket:
+                    self.current_client_socket.close()
                 self._server_socket.close()
                 break
-
         
         
-        
+            
 
     def __handle_client_connection(self):
         """
