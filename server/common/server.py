@@ -4,6 +4,9 @@ import logging
 import signal
 import sys
 
+from common.utils import store_bets, decode_message
+
+BET_MESSAGE_LENGTH = 4
 
 class Server:
     def __init__(self, port, listen_backlog):
@@ -32,8 +35,6 @@ class Server:
         finishes, servers starts to accept new connections again
         """
 
-        # TODO: Modify this program to handle signal to graceful shutdown
-        # the server
         while not self.stop_processes:
             try:
                 self.__accept_new_connection()
@@ -55,10 +56,26 @@ class Server:
         client socket will also be closed
         """
         try:
-            # TODO: Modify the receive to avoid short-reads
-            msg = self.current_client_socket.recv(1024).rstrip().decode('utf-8')
+            msg_length = self.safe_read(BET_MESSAGE_LENGTH)
+            # if nothing is received, return
+            if not msg_length:
+                return
+            msg_len_bytes = int.from_bytes(msg_length, 'big')
+            logging.info(f'action: receive_message | result: in_progress | msg_length: {msg_len_bytes} ')
+            
+            
+            msg = self.safe_read(msg_len_bytes)
+            bets = decode_message(msg)
+            logging.info(f'action: receive_message | result: decoded | msg: {[bets]}')
+
+            store_bets([bets])
+            logging.info(f'action: store_bets | result: success | amount of bets: {len([bets])}')
+            
             addr = self.current_client_socket.getpeername()
             logging.info(f'action: receive_message | result: success | ip: {addr[0]} | msg: {msg}')
+
+
+
             # TODO: Modify the send to avoid short-writes
             self.current_client_socket.send("{}\n".format(msg).encode('utf-8'))
         except OSError as e:
@@ -80,3 +97,12 @@ class Server:
         logging.info(f'action: accept_connections | result: success | ip: {addr[0]}')
         self.current_client_socket = c
         return 
+
+    def safe_read(self, size):
+        data = b''
+        while len(data) < size:
+            chunk = self.current_client_socket.recv(size - len(data))
+            if not chunk:
+                return None
+            data += chunk
+        return data

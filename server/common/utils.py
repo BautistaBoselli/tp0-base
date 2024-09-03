@@ -1,6 +1,7 @@
 import csv
 import datetime
 import time
+import struct
 
 
 """ Bets storage location. """
@@ -43,9 +44,34 @@ def store_bets(bets: list[Bet]) -> None:
 Loads the information all the bets in the STORAGE_FILEPATH file.
 Not thread-safe/process-safe.
 """
-def load_bets() -> list[Bet]:
+def load_bets() -> list[Bet]: # type: ignore
     with open(STORAGE_FILEPATH, 'r') as file:
         reader = csv.reader(file, quoting=csv.QUOTE_MINIMAL)
         for row in reader:
             yield Bet(row[0], row[1], row[2], row[3], row[4], row[5])
 
+def decode_message(message: bytes) -> Bet:
+    """
+    Decodes a message in the format:
+    <agency>,<first_name>,<last_name>,<document>,<birthdate>,<number>
+    """
+    decoded_strings = []
+    offset = 0
+    
+    for _ in range(6):
+        # Extract the length of the string (2 bytes)
+        length = struct.unpack_from('>H', message, offset)[0]
+        offset += 2
+        
+        # Extract the string of that length
+        string_bytes = message[offset:offset + length]
+        string_value = string_bytes.decode('utf-8')
+        decoded_strings.append(string_value)
+        
+        # Move the offset past the current string
+        offset += length
+
+    bet = Bet(decoded_strings[0], decoded_strings[1], decoded_strings[2],
+              decoded_strings[3], decoded_strings[4], decoded_strings[5])
+    
+    return bet
