@@ -3,16 +3,18 @@ package common
 import (
 	"bytes"
 	"encoding/binary"
+	"encoding/csv"
+	"fmt"
 	"os"
 )
 
 type BetMessage struct {
-	agency     string
-	name       string
-	surname    string
-	dni        string
-	birthdate  string
-	bet_number string
+	agency    string
+	name      string
+	surname   string
+	dni       string
+	birthdate string
+	betNumber string
 }
 
 // Serialize serializes the BetMessage into a byte array to be sent
@@ -45,7 +47,7 @@ func (bm *BetMessage) Serialize() ([]byte, error) {
 	}
 
 	// Write bet number
-	if err := bm.SerializeString(buf, bm.bet_number); err != nil {
+	if err := bm.SerializeString(buf, bm.betNumber); err != nil {
 		return nil, err
 	}
 
@@ -97,18 +99,47 @@ func obtainBetMessage() *BetMessage {
 	surname := os.Getenv("APELLIDO")
 	dni := os.Getenv("DNI")
 	birthdate := os.Getenv("NACIMIENTO")
-	bet_number := os.Getenv("NUMERO")
+	betNumber := os.Getenv("NUMERO")
 
-	if agency == "" || name == "" || surname == "" || dni == "" || birthdate == "" || bet_number == "" {
+	if agency == "" || name == "" || surname == "" || dni == "" || birthdate == "" || betNumber == "" {
 		return nil
 	}
 
 	return &BetMessage{
-		agency:     agency,
-		name:       name,
-		surname:    surname,
-		dni:        dni,
-		birthdate:  birthdate,
-		bet_number: bet_number,
+		agency:    agency,
+		name:      name,
+		surname:   surname,
+		dni:       dni,
+		birthdate: birthdate,
+		betNumber: betNumber,
 	}
+}
+
+func obtainBetMessages(agencyId string) ([]BetMessage, error) {
+	filename := fmt.Sprintf("/dataset/agency-%v.csv", agencyId)
+	file, err := os.Open(filename)
+	if err != nil {
+		return nil, err
+	}
+	defer file.Close()
+
+	csvReader := csv.NewReader(file)
+	records, err := csvReader.ReadAll()
+	if err != nil {
+		return nil, err
+	}
+
+	betMessages := make([]BetMessage, 0, len(records))
+	for _, record := range records {
+		betMessages = append(betMessages, BetMessage{
+			agency:    agencyId,
+			name:      record[0],
+			surname:   record[1],
+			dni:       record[2],
+			birthdate: record[3],
+			betNumber: record[4],
+		})
+	}
+
+	return betMessages, nil
 }

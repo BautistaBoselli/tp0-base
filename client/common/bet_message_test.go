@@ -8,12 +8,12 @@ import (
 
 func TestSerialize(t *testing.T) {
 	bm := &BetMessage{
-		agency:     "Agencia1",
-		name:       "Santiago Lionel",
-		surname:    "Lorca",
-		dni:        "30904465",
-		birthdate:  "1999-03-17",
-		bet_number: "7574",
+		agency:    "Agencia1",
+		name:      "Santiago Lionel",
+		surname:   "Lorca",
+		dni:       "30904465",
+		birthdate: "1999-03-17",
+		betNumber: "7574",
 	}
 
 	serialized, err := bm.Serialize()

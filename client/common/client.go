@@ -12,12 +12,15 @@ import (
 
 var log = logging.MustGetLogger("log")
 
+const MAX_BATCH_MESSAGE_SIZE = 8192
+
 // ClientConfig Configuration used by the client
 type ClientConfig struct {
-	ID            string
-	ServerAddress string
-	LoopAmount    int
-	LoopPeriod    time.Duration
+	ID             string
+	ServerAddress  string
+	LoopAmount     int
+	LoopPeriod     time.Duration
+	BatchMaxAmount int
 }
 
 // Client Entity that encapsulates how
@@ -51,21 +54,11 @@ func (c *Client) createClientSocket() error {
 	return nil
 }
 
-func (c *Client) sendBetMessage(bet *BetMessage) error {
-	// Serialize the message
-	msg, err := bet.Serialize()
-	if err != nil {
-		log.Criticalf("action: serialize_message | result: fail | client_id: %v | error: %v",
-			c.config.ID,
-			err,
-		)
-		return err
-	}
-
+func (c *Client) sendBetMessage(bytes []byte) error {
 	// Send the message to the server in a loop until all the message is sent to avoid short writes
 	written := 0
-	for written < len(msg) {
-		n, err := c.conn.Write(msg[written:])
+	for written < len(bytes) {
+		n, err := c.conn.Write(bytes[written:])
 		if err != nil {
 			log.Criticalf("action: send_message | result: fail | client_id: %v | error: %v",
 				c.config.ID,
@@ -81,9 +74,9 @@ func (c *Client) sendBetMessage(bet *BetMessage) error {
 }
 
 // SafeRead Read from the connection until the read_size is reached avoiding short reads
-func (c *Client) SafeRead(response []byte, read_size int) (int, error) {
+func (c *Client) SafeRead(response []byte, readSize int) (int, error) {
 	read := 0
-	for read < read_size {
+	for read < readSize {
 		n, err := c.conn.Read(response[read:])
 		if n == 0 {
 			break
@@ -100,12 +93,16 @@ func (c *Client) SafeRead(response []byte, read_size int) (int, error) {
 
 // StartClientLoop Send messages to the client until some time threshold is met
 func (c *Client) StartClientLoop() {
+	bets, err := obtainBetMessages(c.config.ID)
+	if err != nil {
+		log.Errorf("action: obtain_bet_messages | result: fail | client_id: %v | error: %v", c.config.ID, err)
+		return
+	}
+
 	sigs := make(chan os.Signal, 1)
 	signal.Notify(sigs, syscall.SIGTERM)
 
-	// There is an autoincremental msgID to identify every message sent
-	// Messages if the message amount threshold has not been surpassed
-	for msgID := 1; msgID <= c.config.LoopAmount; msgID++ {
+	for len(bets) > 0 {
 		select {
 		case <-sigs:
 			if c.conn != nil {
@@ -114,23 +111,24 @@ func (c *Client) StartClientLoop() {
 			return
 		case <-time.After(c.config.LoopPeriod):
 		default:
-			c.createClientSocket()
-
-			bet := obtainBetMessage()
-			if bet == nil {
-				log.Criticalf("action: obtain_bet_message | result: fail | client_id: %v", c.config.ID)
+			batchToSend, bytesToSend, err := c.getValidData(bets)
+			if err != nil {
+				log.Errorf("action: serialize_batch | result: fail | client_id: %v | error: %v", c.config.ID, err)
 				return
 			}
+			bets = bets[len(batchToSend.bets):]
 
-			err := c.sendBetMessage(bet)
+			c.createClientSocket()
+
+			err = c.sendBetMessage(bytesToSend)
 			if err != nil {
 				log.Errorf("action: send_bet_message | result: fail | client_id: %v | error: %v", c.config.ID, err)
 				return
 			}
 
-			read_size := len("BETS ACK\n")
-			server_response := make([]byte, read_size)
-			bytesRead, err := c.SafeRead(server_response, read_size)
+			readSize := len("BETS ACK\n")
+			serverResponse := make([]byte, readSize)
+			bytesRead, err := c.SafeRead(serverResponse, readSize)
 			if bytesRead == 0 {
 				log.Errorf("action: receive_message | result: fail | client_id: %v",
 					c.config.ID,
@@ -138,8 +136,8 @@ func (c *Client) StartClientLoop() {
 			}
 
 			c.conn.Close()
-			if string(server_response) == "BETS ACK\n" {
-				log.Infof("action: apuesta_enviada | result: success | dni: %v | numero: %v", bet.dni, bet.bet_number)
+			if string(serverResponse) == "BETS ACK\n" {
+				log.Infof("action: apuesta_enviada | result: success | bets_sent: %d", len(batchToSend.bets))
 			}
 
 			if err != nil {
@@ -152,7 +150,7 @@ func (c *Client) StartClientLoop() {
 
 			log.Infof("action: receive_message | result: success | client_id: %v | msg: %v",
 				c.config.ID,
-				string(server_response),
+				string(serverResponse),
 			)
 
 			// Wait a time between sending one message and the next one
@@ -161,4 +159,22 @@ func (c *Client) StartClientLoop() {
 		}
 	}
 	log.Infof("action: loop_finished | result: success | client_id: %v", c.config.ID)
+}
+
+func (c *Client) getValidData(bets []BetMessage) (*BetBatch, []byte, error) {
+	batchToSend := NewBetBatch(c.config.BatchMaxAmount, bets)
+	bytesToSend, err := batchToSend.Serialize()
+	if err != nil {
+		return nil, nil, err
+	}
+	prevBatchAmount := c.config.BatchMaxAmount
+	for len(bytesToSend) > MAX_BATCH_MESSAGE_SIZE {
+		batchToSend = NewBetBatch(prevBatchAmount/2, bets)
+		bytesToSend, err = batchToSend.Serialize()
+		if err != nil {
+			return nil, nil, err
+		}
+		prevBatchAmount = prevBatchAmount / 2
+	}
+	return batchToSend, bytesToSend, nil
 }

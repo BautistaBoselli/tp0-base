@@ -6,7 +6,7 @@ import sys
 
 from common.utils import store_bets, decode_message, Bet
 
-BET_MESSAGE_LENGTH = 4
+BET_MESSAGE_LENGTH = 8
 
 class Server:
     def __init__(self, port, listen_backlog):
