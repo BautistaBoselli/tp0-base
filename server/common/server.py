@@ -106,6 +106,6 @@ class Server:
     # This function avoids short-writes by writing to the socket the whole message until finished
     def safe_write(self, msg):
         msg_bytes = msg.encode('utf-8')
-        while len(msg) > 0:
+        while len(msg_bytes) > 0:
             sent = self.current_client_socket.send(msg_bytes)
-            msg = msg[sent:]
+            msg_bytes = msg_bytes[sent:]

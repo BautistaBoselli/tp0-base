@@ -119,6 +119,20 @@ Se deberá implementar un módulo de comunicación entre el cliente y el servido
 - Correcta separación de responsabilidades entre modelo de dominio y capa de comunicación.
 - Correcto empleo de sockets, incluyendo manejo de errores y evitando los fenómenos conocidos como [_short read y short write_](https://cs61.seas.harvard.edu/site/2018/FileDescriptors/).
 
+Para este ejercicio el protocolo elegido para el envío de mensajes se mantuvo con TCP ya que necesitamos asegurar que se envíen correctamente todos los datos de la apuesta y por lo tanto nos beneficiamos de la confiabilidad que provee TCP.
+Se creo una estructura para almacenar todos los datos de la apuesta:
+
+```
+<agencia, nombre, apellido, documento, nacimiento y numero>
+```
+
+Estos datos los guardamos todos como strings, si bien esto hace que las apuestas a enviar ocupen mucho más espacio del estrictamente necesario, este tipo de decisión resulta en un protocolo mucho más sencillo de trabajar para el cliente al serializarlo y mandarlo, como para el servidor al leerlo y deserializarlo para almacenarlo. Luego de almacenarlo el servidor envia un mensaje "BETS ACK" al cliente para confirmar que la apuesta fue guardada correctamente.
+En cuanto a la serialización de la apuesta se realiza de la siguiente manera:
+Los primeros 4 bytes del mensaje indican la longitud del mensaje a enviar (es decir, la apuesta entera) y luego, por cada campo al ser todos strings se tratan de la misma manera: 2 bytes indican la longitud del campo y luego se encuentra el campo en si. De esta manera el servidor puede leer los primeros 4 bytes para saber cuantos bytes leer y luego por cada campo leer los 2 bytes iniciales para saber cuantos bytes leer de ese campo en particular. Todo esto se hace en BigEndian.
+Luego el servidor puede decodificar facilmente toda la apuesta y la almacena con la función store_bet() provista por la cátedra.
+Se implementó la lógica de apuestas en el cliente en el archivo bet_message.go, permitiendo separar la lógica de comunicación de la lógica de modelo de dominio. Asi mismo en el servidor se modifico el archivo utils.py para tener separadas las responsabilidades entre ambas capas.
+También se implementaron nuevas formas de leer y escribir en los sockets para evitar los problemas de short read y short write tanto para el cliente como para el servidor.
+
 ### Ejercicio N°6:
 
 Modificar los clientes para que envíen varias apuestas a la vez (modalidad conocida como procesamiento por _chunks_ o _batchs_). La información de cada agencia será simulada por la ingesta de su archivo numerado correspondiente, provisto por la cátedra dentro de `.data/datasets.zip`.

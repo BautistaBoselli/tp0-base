@@ -65,7 +65,12 @@ def decode_message(message: bytes) -> Bet:
     offset = 0
     
     for _ in range(6):
-        # Extract the length of the string (2 bytes)
+        """
+        Extract the length of the string (2 bytes)
+        H is an unsigned short (2 bytes)
+        > is big-endian
+        """
+        
         length = struct.unpack_from('>H', message, offset)[0]
         offset += 2
         
