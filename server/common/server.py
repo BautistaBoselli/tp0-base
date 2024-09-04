@@ -56,31 +56,28 @@ class Server:
         client socket will also be closed
         """
         try:
-            msg_length = self.safe_read(BET_MESSAGE_LENGTH)
-            # if nothing is received, return
-            if not msg_length:
-                return
-            msg_len_bytes = int.from_bytes(msg_length, 'big')
-            logging.info(f'action: receive_message | result: in_progress | msg_length: {msg_len_bytes} ')
-            
-            
-            msg = self.safe_read(msg_len_bytes)
+            msg = self.read_bet()
             bets = decode_message(msg)
-
             store_bets([bets])
             logging.info(f'action: store_bets | result: success | amount of bets: {len([bets])}')
-            
             addr = self.current_client_socket.getpeername()
             Bet.log_fields(bets, addr[0])
-
-
-
-            # TODO: Modify the send to avoid short-writes
-            self.current_client_socket.send("{}\n".format(msg).encode('utf-8'))
+            self.safe_write("BETS ACK\n")
         except OSError as e:
-            logging.error("action: receive_message | result: fail | error: {e}")
+            logging.error(f"action: receive_message | result: fail | error: {e}")
         finally:
             self.current_client_socket.close()
+
+    def read_bet(self):
+        msg_length = self.safe_read(BET_MESSAGE_LENGTH)
+        if not msg_length:
+            raise OSError("Connection closed")
+        msg_len_bytes = int.from_bytes(msg_length, 'big')
+        logging.info(f'action: receive_message | result: in_progress | msg_length: {msg_len_bytes} ')
+        msg = self.safe_read(msg_len_bytes)
+        if not msg:
+            raise OSError("Connection closed")
+        return msg
 
     def __accept_new_connection(self):
         """
@@ -105,3 +102,10 @@ class Server:
                 return None
             data += chunk
         return data
+    
+    # This function avoids short-writes by writing to the socket the whole message until finished
+    def safe_write(self, msg):
+        msg_bytes = msg.encode('utf-8')
+        while len(msg) > 0:
+            sent = self.current_client_socket.send(msg_bytes)
+            msg = msg[sent:]
