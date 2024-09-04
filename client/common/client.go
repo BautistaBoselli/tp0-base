@@ -1,8 +1,8 @@
 package common
 
 import (
+	"encoding/binary"
 	"encoding/csv"
-	"fmt"
 	"net"
 	"os"
 	"os/signal"
@@ -91,6 +91,11 @@ func (c *Client) StartClientLoop() {
 			}
 			bets = bets[len(batchToSend.bets):]
 
+			if len(bets) == 0 {
+				// Replace the first byte with a 1 to indicate the server this is the last batch
+				bytesToSend[0] = 1
+			}
+
 			err = c.createClientSocket()
 			if err != nil {
 				bets = nil
@@ -105,19 +110,10 @@ func (c *Client) StartClientLoop() {
 				return
 			}
 
-			readSize := len("BETS ACK\n")
-			serverResponse := make([]byte, readSize)
-			serverResponse, err = c.getServerResponse(serverResponse, readSize)
+			serverResponse, err := c.getServerResponse()
 
 			if string(serverResponse) == "BETS ACK\n" {
 				log.Infof("action: apuesta_enviada | result: success | bets_sent: %d", len(batchToSend.bets))
-				// If there are no more bets to send, send a finish message after receiving the last ACK
-				if len(bets) == 0 {
-					textToSend := fmt.Sprintf("FINISH:%v\n", c.config.ID)
-					bytes := []byte(textToSend)
-					c.sendMessage(bytes)
-					log.Infof("action: FINISH SENT | result: success | client_id: %v", c.config.ID)
-				}
 			}
 
 			if string(serverResponse) == "ERROR\n" {
@@ -214,7 +210,15 @@ func (c *Client) getValidData(bets []BetMessage) (BetBatch, []byte, error) {
 	return batchToSend, bytesToSend, nil
 }
 
-func (c *Client) getServerResponse(serverResponse []byte, readSize int) ([]byte, error) {
+func (c *Client) getServerResponse() ([]byte, error) {
+	// readSize is always the first two bytes of the message
+	readBuffer := make([]byte, 2)
+	_, err := c.SafeRead(readBuffer, 2)
+	if err != nil {
+		return nil, err
+	}
+	readSize := int(binary.BigEndian.Uint16(readBuffer))
+	serverResponse := make([]byte, readSize)
 	bytesRead, err := c.SafeRead(serverResponse, readSize)
 	if bytesRead == 0 {
 		log.Errorf("action: receive_message | result: fail | client_id: %v",

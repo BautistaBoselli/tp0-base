@@ -25,6 +25,11 @@ func (bb *BetBatch) Serialize() ([]byte, error) {
 	totalLength := int16(buf.Len())
 	finalBuf := new(bytes.Buffer)
 
+	// Write a 0 on the first byte to indicate the type of message
+	if err := binary.Write(finalBuf, binary.BigEndian, int8(0)); err != nil {
+		return nil, err
+	}
+
 	// Write the total length of the batch in the final buffer
 	if err := bb.SerializeLength(finalBuf, totalLength); err != nil {
 		return nil, err
