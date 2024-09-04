@@ -6,7 +6,7 @@ import (
 )
 
 type BetBatch struct {
-	bets []*BetMessage
+	bets []BetMessage
 }
 
 func (bb *BetBatch) Serialize() ([]byte, error) {
@@ -46,14 +46,14 @@ func (bb *BetBatch) SerializeLength(buf *bytes.Buffer, length int64) error {
 	return nil
 }
 
-func (bb *BetBatch) AddBet(bet *BetMessage) {
+func (bb *BetBatch) AddBet(bet BetMessage) {
 	bb.bets = append(bb.bets, bet)
 }
 
 // NewBetBatch creates a new BetBatch from a slice of BetMessages
-func NewBetBatch(batchAmount int, bet_messages []BetMessage) *BetBatch {
-	bb := &BetBatch{
-		bets: make([]*BetMessage, 0, batchAmount),
+func NewBetBatch(batchAmount int, bet_messages []BetMessage) BetBatch {
+	bb := BetBatch{
+		bets: make([]BetMessage, 0, batchAmount),
 	}
 
 	limiter := batchAmount
@@ -63,7 +63,7 @@ func NewBetBatch(batchAmount int, bet_messages []BetMessage) *BetBatch {
 	}
 	// Add batchAmount bets to the batch
 	for i := 0; i < limiter; i++ {
-		bb.AddBet(&bet_messages[i])
+		bb.AddBet(bet_messages[i])
 	}
 
 	return bb

@@ -4,7 +4,6 @@ import (
 	"bytes"
 	"encoding/binary"
 	"encoding/csv"
-	"fmt"
 	"os"
 )
 
@@ -115,15 +114,7 @@ func obtainBetMessage() *BetMessage {
 	}
 }
 
-func obtainBetMessages(agencyId string) ([]BetMessage, error) {
-	filename := fmt.Sprintf("/dataset/agency-%v.csv", agencyId)
-	file, err := os.Open(filename)
-	if err != nil {
-		return nil, err
-	}
-	defer file.Close()
-
-	csvReader := csv.NewReader(file)
+func obtainBetMessages(csvReader *csv.Reader, agencyId string) ([]BetMessage, error) {
 	records, err := csvReader.ReadAll()
 	if err != nil {
 		return nil, err
