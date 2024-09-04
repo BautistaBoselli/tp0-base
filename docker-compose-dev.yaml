@@ -19,16 +19,11 @@ services:
     entrypoint: /client
     environment:
       - CLI_ID=1
-      - AGENCIA=12
-      - NOMBRE=Santiago Lionel
-      - APELLIDO=Lorca
-      - DNI=30904465
-      - NACIMIENTO=1999-03-17
-      - NUMERO=7574
     volumes:
       - type: bind
         source: ./client/config.yaml
         target: /config.yaml
+      - ./.data/dataset/agency-1.csv:/agency.csv
     networks:
       - testing_net
     depends_on:

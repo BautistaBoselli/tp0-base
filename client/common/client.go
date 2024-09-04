@@ -1,6 +1,7 @@
 package common
 
 import (
+	"encoding/csv"
 	"net"
 	"os"
 	"os/signal"
@@ -91,9 +92,27 @@ func (c *Client) SafeRead(response []byte, readSize int) (int, error) {
 	return read, nil
 }
 
+func (c *Client) getFile() (*os.File, error) {
+	filename := "/agency.csv"
+	file, err := os.Open(filename)
+	if err != nil {
+		log.Errorf("action: open_file | result: fail | client_id: %v | error: %v", c.config.ID, err)
+		return nil, err
+	}
+	return file, nil
+}
+
 // StartClientLoop Send messages to the client until some time threshold is met
 func (c *Client) StartClientLoop() {
-	bets, err := obtainBetMessages(c.config.ID)
+	// filename := fmt.Sprintf("/dataset/agency-%v.csv", c.config.ID)
+	file, err := c.getFile()
+	if err != nil {
+		return
+	}
+	defer file.Close()
+
+	csvReader := csv.NewReader(file)
+	bets, err := obtainBetMessages(csvReader, c.config.ID)
 	if err != nil {
 		log.Errorf("action: obtain_bet_messages | result: fail | client_id: %v | error: %v", c.config.ID, err)
 		return
@@ -112,6 +131,9 @@ func (c *Client) StartClientLoop() {
 		case <-time.After(c.config.LoopPeriod):
 		default:
 			batchToSend, bytesToSend, err := c.getValidData(bets)
+			log.Infof("Entraste al default")
+			// log.Infof("bets: %v", bets)
+			log.Infof("batchToSend: %v", batchToSend)
 			if err != nil {
 				log.Errorf("action: serialize_batch | result: fail | client_id: %v | error: %v", c.config.ID, err)
 				return
@@ -161,18 +183,21 @@ func (c *Client) StartClientLoop() {
 	log.Infof("action: loop_finished | result: success | client_id: %v", c.config.ID)
 }
 
-func (c *Client) getValidData(bets []BetMessage) (*BetBatch, []byte, error) {
+func (c *Client) getValidData(bets []BetMessage) (BetBatch, []byte, error) {
+	log.Infof("dentro de getValidData")
+	log.Infof("batchMaxAmount: %v", c.config.BatchMaxAmount)
 	batchToSend := NewBetBatch(c.config.BatchMaxAmount, bets)
+	log.Infof("getvalidData batchToSend: %v", batchToSend)
 	bytesToSend, err := batchToSend.Serialize()
 	if err != nil {
-		return nil, nil, err
+		return batchToSend, nil, err
 	}
 	prevBatchAmount := c.config.BatchMaxAmount
 	for len(bytesToSend) > MAX_BATCH_MESSAGE_SIZE {
 		batchToSend = NewBetBatch(prevBatchAmount/2, bets)
 		bytesToSend, err = batchToSend.Serialize()
 		if err != nil {
-			return nil, nil, err
+			return batchToSend, nil, err
 		}
 		prevBatchAmount = prevBatchAmount / 2
 	}
