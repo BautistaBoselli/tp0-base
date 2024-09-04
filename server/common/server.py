@@ -6,7 +6,8 @@ import sys
 
 from common.utils import store_bets, decode_message, Bet
 
-BET_MESSAGE_LENGTH = 8
+BET_BATCH_MESSAGE_LENGTH = 8
+BET_MESSAGE_LENGTH = 4
 
 class Server:
     def __init__(self, port, listen_backlog):
@@ -44,41 +45,7 @@ class Server:
                     self.current_client_socket.close()
                 self._server_socket.close()
                 break
-        
-        
-            
-
-    def __handle_client_connection(self):
-        """
-        Read message from a specific client socket and closes the socket
-
-        If a problem arises in the communication with the client, the
-        client socket will also be closed
-        """
-        try:
-            msg = self.read_bet()
-            bets = decode_message(msg)
-            store_bets([bets])
-            logging.info(f'action: store_bets | result: success | amount of bets: {len([bets])}')
-            addr = self.current_client_socket.getpeername()
-            Bet.log_fields(bets, addr[0])
-            self.safe_write("BETS ACK\n")
-        except OSError as e:
-            logging.error(f"action: receive_message | result: fail | error: {e}")
-        finally:
-            self.current_client_socket.close()
-
-    def read_bet(self):
-        msg_length = self.safe_read(BET_MESSAGE_LENGTH)
-        if not msg_length:
-            raise OSError("Connection closed")
-        msg_len_bytes = int.from_bytes(msg_length, 'big')
-        logging.info(f'action: receive_message | result: in_progress | msg_length: {msg_len_bytes} ')
-        msg = self.safe_read(msg_len_bytes)
-        if not msg:
-            raise OSError("Connection closed")
-        return msg
-
+    
     def __accept_new_connection(self):
         """
         Accept new connections
@@ -92,7 +59,50 @@ class Server:
         c, addr = self._server_socket.accept()
         logging.info(f'action: accept_connections | result: success | ip: {addr[0]}')
         self.current_client_socket = c
-        return 
+        return               
+
+    def __handle_client_connection(self):
+        """
+        Read message from a specific client socket and closes the socket
+
+        If a problem arises in the communication with the client, the
+        client socket will also be closed
+        """
+        try:
+            msg = self.read_bets()
+            bets = self.parse_bets(msg)
+            # bets = decode_message(msg)
+            store_bets([bets])
+            logging.info(f'action: store_bets | result: success | amount of bets: {len([bets])}')
+            addr = self.current_client_socket.getpeername()
+            Bet.log_fields(bets, addr[0])
+            self.safe_write("BETS ACK\n")
+        except OSError as e:
+            logging.error(f"action: receive_message | result: fail | error: {e}")
+        finally:
+            self.current_client_socket.close()
+
+    def read_bets(self):
+        msg_len_bytes = self.safe_read(BET_BATCH_MESSAGE_LENGTH)
+        if not msg_len_bytes:
+            raise OSError("Connection closed")
+        msg_length = int.from_bytes(msg_len_bytes, 'big')
+        logging.info(f'action: receive_message | result: in_progress | msg_length: {msg_length} ')
+        msg = self.safe_read(msg_length)
+        if not msg:
+            raise OSError("Connection closed")
+        return msg
+
+    def parse_bets(self, msg):
+        bets = []
+        while msg:
+            bet_len = int.from_bytes(msg[:BET_MESSAGE_LENGTH], 'big')
+            msg = msg[BET_MESSAGE_LENGTH:]
+            bet_to_decode = msg[:bet_len]
+            bet = decode_message(bet_to_decode)
+            bets.append(bet)
+            msg = msg[bet_len:]
+        return bets
 
     def safe_read(self, size):
         data = b''
