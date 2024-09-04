@@ -71,6 +71,14 @@ class Server:
         """
         try:
             # If a error happens while reading an exception will be raised and an error will be logged and sent to the client
+            first_byte = self.safe_read(1)
+            if not first_byte:
+                raise OSError("Connection closed")
+            logging.info(f'the first byte is {first_byte}')
+            # # If first byte is a "1", the client is telling he finished and we can get the bets
+            # if first_byte == b'1':
+            #     logging.info("FINISHED_RECEIVED")
+            #     self.safe_write("READY\n")
             msg = self.read_bets()
             bets = self.parse_bets(msg)
             if not bets:
@@ -133,6 +141,8 @@ class Server:
     # This function avoids short-writes by writing to the socket the whole message until finished
     def safe_write(self, msg):
         msg_bytes = msg.encode('utf-8')
+        length = len(msg_bytes).to_bytes(2, 'big')
+        msg_bytes = length + msg_bytes
         while len(msg_bytes) > 0:
             sent = self.current_client_socket.send(msg_bytes)
             msg_bytes = msg_bytes[sent:]
