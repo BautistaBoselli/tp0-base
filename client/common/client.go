@@ -188,6 +188,7 @@ func (c *Client) getValidData(bets []BetMessage) (BetBatch, []byte, error) {
 	}
 	prevBatchAmount := c.config.BatchMaxAmount
 	for len(bytesToSend) > MAX_BATCH_MESSAGE_SIZE {
+		log.Infof("batch size too big, reducing to %d", prevBatchAmount/2)
 		batchToSend = NewBetBatch(prevBatchAmount/2, bets)
 		bytesToSend, err = batchToSend.Serialize()
 		if err != nil {
