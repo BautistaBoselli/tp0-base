@@ -26,6 +26,9 @@ class Bet:
         self.birthdate = datetime.date.fromisoformat(birthdate)
         self.number = int(number)
 
+    def logFields(self, ip):
+        return logging.info(f'action: receive_message | result: success | ip: {ip} | msg: {self.agency},{self.first_name},{self.last_name},{self.document},{self.birthdate},{self.number}')
+
 """ Checks whether a bet won the prize or not. """
 def has_won(bet: Bet) -> bool:
     return bet.number == LOTTERY_WINNER_NUMBER

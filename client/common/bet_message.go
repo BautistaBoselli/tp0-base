@@ -50,7 +50,7 @@ func (bm *BetMessage) Serialize() ([]byte, error) {
 	}
 
 	// Calculate the total length of the message
-	totalLength := int32(buf.Len())
+	totalLength := int16(buf.Len())
 	finalBuf := new(bytes.Buffer)
 
 	// Write the total length of the message in the final buffer
@@ -67,7 +67,7 @@ func (bm *BetMessage) Serialize() ([]byte, error) {
 }
 
 // SerializeString writes a string to the buffer in the following format:
-// - 2 bytes with the length of the string
+// - 1 byte with the length of the string, by doing this we are limiting the field to 255 characters
 // - n bytes with the string
 func (bm *BetMessage) SerializeString(buf *bytes.Buffer, str string) error {
 	strBytes := []byte(str)
@@ -82,7 +82,7 @@ func (bm *BetMessage) SerializeString(buf *bytes.Buffer, str string) error {
 }
 
 // SerializeLength writes the length of the message to the buffer
-func (bm *BetMessage) SerializeLength(buf *bytes.Buffer, length int32) error {
+func (bm *BetMessage) SerializeLength(buf *bytes.Buffer, length int16) error {
 	if err := binary.Write(buf, binary.BigEndian, length); err != nil {
 		return err
 	}

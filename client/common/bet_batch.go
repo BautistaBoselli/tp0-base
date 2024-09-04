@@ -22,7 +22,7 @@ func (bb *BetBatch) Serialize() ([]byte, error) {
 	}
 
 	// Calculate the total length of the message
-	totalLength := int64(buf.Len())
+	totalLength := int16(buf.Len())
 	finalBuf := new(bytes.Buffer)
 
 	// Write the total length of the batch in the final buffer
@@ -36,9 +36,8 @@ func (bb *BetBatch) Serialize() ([]byte, error) {
 	return finalBuf.Bytes(), nil
 }
 
-// SerializeLength writes the length of the message to the buffer
-// The difference with SerializeLength is that this function writes an int64 instead of an int32 allowing to send bigger batches
-func (bb *BetBatch) SerializeLength(buf *bytes.Buffer, length int64) error {
+// SerializeLength writes the length of the message with all the bets to the buffer
+func (bb *BetBatch) SerializeLength(buf *bytes.Buffer, length int16) error {
 	if err := binary.Write(buf, binary.BigEndian, length); err != nil {
 		return err
 	}

@@ -104,7 +104,6 @@ func (c *Client) getFile() (*os.File, error) {
 
 // StartClientLoop Send messages to the client until some time threshold is met
 func (c *Client) StartClientLoop() {
-	// filename := fmt.Sprintf("/dataset/agency-%v.csv", c.config.ID)
 	file, err := c.getFile()
 	if err != nil {
 		return

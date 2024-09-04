@@ -6,8 +6,8 @@ import sys
 
 from common.utils import store_bets, decode_message, Bet
 
-BET_BATCH_MESSAGE_LENGTH = 8
-BET_MESSAGE_LENGTH = 4
+BET_BATCH_MESSAGE_LENGTH = 2
+BET_MESSAGE_LENGTH = 2
 
 class Server:
     def __init__(self, port, listen_backlog):
@@ -71,11 +71,11 @@ class Server:
         try:
             msg = self.read_bets()
             bets = self.parse_bets(msg)
-            logging.info(f'bets to store: {bets}')
             store_bets(bets)
-            logging.info(f'action: store_bets | result: success | amount of bets: {len([bets])}')
+            logging.info(f'action: store_bets | result: success | amount of bets: {len(bets)}')
             addr = self.current_client_socket.getpeername()
-            logging.info(f'action: receive_message | result: success | ip: {addr[0]} | msg: {msg}')
+            # Only first bet in batch is logged, for control purposes
+            Bet.logFields(bets[0], addr[0])
             self.safe_write("BETS ACK\n")
         except OSError as e:
             logging.error(f"action: receive_message | result: fail | error: {e}")
