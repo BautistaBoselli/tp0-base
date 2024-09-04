@@ -135,14 +135,24 @@ También se implementaron nuevas formas de leer y escribir en los sockets para e
 
 ### Ejercicio N°6:
 
-Modificar los clientes para que envíen varias apuestas a la vez (modalidad conocida como procesamiento por _chunks_ o _batchs_). La información de cada agencia será simulada por la ingesta de su archivo numerado correspondiente, provisto por la cátedra dentro de `.data/datasets.zip`.
-Los _batchs_ permiten que el cliente registre varias apuestas en una misma consulta, acortando tiempos de transmisión y procesamiento.
+Para este ejercicio se tuvieron que modificar varias cosas como la fuente de los datos ya que ahora se recibian por archivo y no por variable de entorno, esto resulto en que se deprecaron algunas funciones y se incorporaron nuevas. Se implementó el concepto de BetBatch como estructura simple para guardar un slice con las apuestas a enviar en un determinado batch, y se implementaron algunos metodos para estos batches para permitir serializarlos y para de una lista con todas las apuestas de un archivo generar un batch solo del BatchMAxAmount que se recibe por config.
+Se modificó la forma de serializar para construir sobre la serialización de la apuesta individual que ya habíamos implementado para el ejercicio anterior, y se agrego un campo extra al mensaje que indica la cantidad de bytes totales que se envían en el batch. De esta forma el servidor puede leer los primeros 2 bytes para saber cuantos bytes leer y luego por cada apuesta leer los 2 bytes iniciales para saber cuantos bytes leer de esa apuesta en particular. Todo esto se hace en BigEndian. Estos son los campos que se envían en el mensaje:
+Todos los tamaños son campos de 2 bytes, esto se debe a que como el máximo de un batch es 8kb, con 2 bytes alcanza para representar un número de 0 a 65535, lo cual es suficiente para representar la cantidad de bytes que se pueden mandar en un batch. De la misma forma tambien es más que suficiente para representar el tamaño de una apuesta individual
 
-En el servidor, si todas las apuestas del _batch_ fueron procesadas correctamente, imprimir por log: `action: apuesta_recibida | result: success | cantidad: ${CANTIDAD_DE_APUESTAS}`. En caso de detectar un error con alguna de las apuestas, debe responder con un código de error a elección e imprimir: `action: apuesta_recibida | result: fail | cantidad: ${CANTIDAD_DE_APUESTAS}`.
+```
+<tamaño en bytes del batch><tamaño apuesta1><apuesta1><tamaño apuesta2><apuesta2>...<tamaño apuestaN><apuestaN>
+```
 
-La cantidad máxima de apuestas dentro de cada _batch_ debe ser configurable desde config.yaml. Respetar la clave `batch: maxAmount`, pero modificar el valor por defecto de modo tal que los paquetes no excedan los 8kB.
+Para evitar pasarnos del tamaño máximo de bytes de un batch que es 8kb, se realiza un algoritmo que revisa si el tamaño serializado del batch es mayor a este número, en caso de no serlo se envía el batch normalmente, pero si lo fuera, el algoritmo vuelve a crear un batch pero con la mitad de las apuestas que tenia el batch original y lo serializa, y revisa nuevamente la condición hasta que el tamaño del batch sea menor a 8kb. De esta forma se asegura que el batch no sea mayor a 8kb y se envíe correctamente. Luego de obtener el batch de tamaño adecuado, se modifica la lista con todas las apuestas quitando de la misma aquellas que se envían en el batch y se envía el batch al servidor.
+El servidor por su parte recibe el batch y lee los primeros 2 bytes para saber cuantos bytes leer y luego evitando short reads, lee esa cantidad, de esta forma tenemos en memoria todo el batch y procedemos a decodificar cada apuesta individualmente y la agregamos a una lista, la cual recibe la función store_bet() para almacenarla. Luego de almacenar todas las apuestas del batch, el servidor envía el mismo mensaje de ack que en el ejercicio anterior para confirmar que todas las apuestas fueron almacenadas correctamente.
+Haciendo fine tuning de la cantidad de apuestas que se pueden enviar en un batch sin tener que dividirlo, se llegó al número de 140 apuestas por batch, lo cual permite que casi todos los batches se envíen sin tener que dividirlos.
+Con el siguiente comando, se puede ver como va cargando el servidor en el archivo de bets.csv y analizar si esta cargando todo correctamente:
 
-El servidor, por otro lado, deberá responder con éxito solamente si todas las apuestas del _batch_ fueron procesadas correctamente.
+```
+docker exec server cat bets.csv
+```
+
+Ejecutarlo mientras esta levantado el docker-compose y se estan enviando apuestas para ver como se va llenando el archivo.
 
 ### Ejercicio N°7:
 
