@@ -68,13 +68,18 @@ def decode_message(message: bytes) -> Bet:
         H is an unsigned short (2 bytes)
         > is big-endian
         """
+        try:
+            length = struct.unpack_from('>H', message, offset)[0]
+        except struct.error:
+            raise ValueError("Invalid message")
         
-        length = struct.unpack_from('>H', message, offset)[0]
         offset += 2
         
         # Extract the string of that length
         string_bytes = message[offset:offset + length]
         string_value = string_bytes.decode('utf-8')
+        if string_value == "":
+            raise ValueError("Empty field")
         decoded_strings.append(string_value)
         
         # Move the offset past the current string

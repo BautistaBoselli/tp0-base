@@ -50,6 +50,7 @@ func (c *Client) createClientSocket() error {
 			c.config.ID,
 			err,
 		)
+		return err
 	}
 	c.conn = conn
 	return nil
@@ -130,13 +131,19 @@ func (c *Client) StartClientLoop() {
 		case <-time.After(c.config.LoopPeriod):
 		default:
 			batchToSend, bytesToSend, err := c.getValidData(bets)
-			if err != nil {
+			if err != nil || bytesToSend == nil {
 				log.Errorf("action: serialize_batch | result: fail | client_id: %v | error: %v", c.config.ID, err)
 				return
 			}
 			bets = bets[len(batchToSend.bets):]
 
-			c.createClientSocket()
+			err = c.createClientSocket()
+			if err != nil {
+				bets = nil
+				log.Criticalf("server socket not found, exiting")
+				c.conn.Close()
+				return
+			}
 
 			err = c.sendBetMessage(bytesToSend)
 			if err != nil {
@@ -146,12 +153,7 @@ func (c *Client) StartClientLoop() {
 
 			readSize := len("BETS ACK\n")
 			serverResponse := make([]byte, readSize)
-			bytesRead, err := c.SafeRead(serverResponse, readSize)
-			if bytesRead == 0 {
-				log.Errorf("action: receive_message | result: fail | client_id: %v",
-					c.config.ID,
-				)
-			}
+			serverResponse, err = c.getServerResponse(serverResponse, readSize)
 
 			c.conn.Close()
 			if string(serverResponse) == "BETS ACK\n" {
@@ -160,6 +162,7 @@ func (c *Client) StartClientLoop() {
 
 			if string(serverResponse) == "ERROR\n" {
 				log.Errorf("action: apuesta_enviada | result: fail | bets_sent: %d", len(batchToSend.bets))
+				bets = nil
 				return
 			}
 
@@ -201,4 +204,14 @@ func (c *Client) getValidData(bets []BetMessage) (BetBatch, []byte, error) {
 		prevBatchAmount = prevBatchAmount / 2
 	}
 	return batchToSend, bytesToSend, nil
+}
+
+func (c *Client) getServerResponse(serverResponse []byte, readSize int) ([]byte, error) {
+	bytesRead, err := c.SafeRead(serverResponse, readSize)
+	if bytesRead == 0 {
+		log.Errorf("action: receive_message | result: fail | client_id: %v",
+			c.config.ID,
+		)
+	}
+	return serverResponse, err
 }

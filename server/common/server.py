@@ -45,6 +45,7 @@ class Server:
                     self.current_client_socket.close()
                 self._server_socket.close()
                 break
+
     
     def __accept_new_connection(self):
         """
@@ -72,6 +73,8 @@ class Server:
             # If a error happens while reading an exception will be raised and an error will be logged and sent to the client
             msg = self.read_bets()
             bets = self.parse_bets(msg)
+            if not bets:
+                raise ValueError("Invalid message")
             store_bets(bets)
             logging.info(f'action: apuesta_recibida | result: success | cantidad: {len(bets)}')
             addr = self.current_client_socket.getpeername()
@@ -79,9 +82,16 @@ class Server:
             Bet.logFields(bets[0], addr[0])
             self.safe_write("BETS ACK\n")
         except OSError as e:
-            self.safe_write("ERROR\n")
             logging.error(f'action: apuesta_recibida | result: fail | cantidad: {len(bets)}')
-            logging.error(f"action: receive_message | result: fail | error: {e}")
+            logging.error(f"action: receive_message | result: fail | error: {e}") 
+        except ValueError as e:        
+            self.safe_write("ERROR\n")
+            logging.error(f"action: receive_message | result: fail | error: {e}")  
+            logging.critical(f'invalid bets found, shutting down connection')
+            self.stop_processes = True
+            if self.current_client_socket:
+                self.current_client_socket.close()
+            self._server_socket.close()
         finally:
             self.current_client_socket.close()
 
@@ -99,12 +109,16 @@ class Server:
     def parse_bets(self, msg):
         bets = []
         while msg:
-            bet_len = int.from_bytes(msg[:BET_MESSAGE_LENGTH], 'big')
-            msg = msg[BET_MESSAGE_LENGTH:]
-            bet_to_decode = msg[:bet_len]
-            bet = decode_message(bet_to_decode)
-            bets.append(bet)
-            msg = msg[bet_len:]
+            try:
+                bet_len = int.from_bytes(msg[:BET_MESSAGE_LENGTH], 'big')
+                msg = msg[BET_MESSAGE_LENGTH:]
+                bet_to_decode = msg[:bet_len]
+                bet = decode_message(bet_to_decode)
+                bets.append(bet)
+                msg = msg[bet_len:]
+            except ValueError:
+                logging.error(f'action: apuesta_recibida | result: fail | cantidad: {len(bets)}')
+                return []
         return bets
 
     def safe_read(self, size):
