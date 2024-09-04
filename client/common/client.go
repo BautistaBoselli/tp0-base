@@ -1,8 +1,6 @@
 package common
 
 import (
-	"bufio"
-	"io"
 	"net"
 	"os"
 	"os/signal"
@@ -64,7 +62,7 @@ func (c *Client) sendBetMessage(bet *BetMessage) error {
 		return err
 	}
 
-	// Send the message to the server
+	// Send the message to the server in a loop until all the message is sent to avoid short writes
 	written := 0
 	for written < len(msg) {
 		n, err := c.conn.Write(msg[written:])
@@ -80,6 +78,24 @@ func (c *Client) sendBetMessage(bet *BetMessage) error {
 
 	log.Infof("action: send_message | result: success | client_id: %v", c.config.ID)
 	return nil
+}
+
+// SafeRead Read from the connection until the read_size is reached avoiding short reads
+func (c *Client) SafeRead(response []byte, read_size int) (int, error) {
+	read := 0
+	for read < read_size {
+		n, err := c.conn.Read(response[read:])
+		if n == 0 {
+			break
+		}
+
+		if err != nil {
+			return 0, err
+		}
+		read += n
+	}
+
+	return read, nil
 }
 
 // StartClientLoop Send messages to the client until some time threshold is met
@@ -114,7 +130,7 @@ func (c *Client) StartClientLoop() {
 
 			read_size := len("BETS ACK\n")
 			server_response := make([]byte, read_size)
-			bytesRead, err := SafeRead(bufio.NewReader(c.conn), server_response, read_size)
+			bytesRead, err := c.SafeRead(server_response, read_size)
 			if bytesRead == 0 {
 				log.Errorf("action: receive_message | result: fail | client_id: %v",
 					c.config.ID,
@@ -145,21 +161,4 @@ func (c *Client) StartClientLoop() {
 		}
 	}
 	log.Infof("action: loop_finished | result: success | client_id: %v", c.config.ID)
-}
-
-func SafeRead(buf io.Reader, response []byte, read_size int) (int, error) {
-	read := 0
-	for read < read_size {
-		n, err := buf.Read(response[read:])
-		if n == 0 {
-			break
-		}
-
-		if err != nil {
-			return 0, err
-		}
-		read += n
-	}
-
-	return read, nil
 }
