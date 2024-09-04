@@ -69,15 +69,18 @@ class Server:
         client socket will also be closed
         """
         try:
+            # If a error happens while reading an exception will be raised and an error will be logged and sent to the client
             msg = self.read_bets()
             bets = self.parse_bets(msg)
             store_bets(bets)
-            logging.info(f'action: store_bets | result: success | amount of bets: {len(bets)}')
+            logging.info(f'action: apuesta_recibida | result: success | cantidad: {len(bets)}')
             addr = self.current_client_socket.getpeername()
             # Only first bet in batch is logged, for control purposes
             Bet.logFields(bets[0], addr[0])
             self.safe_write("BETS ACK\n")
         except OSError as e:
+            self.safe_write("ERROR\n")
+            logging.error(f'action: apuesta_recibida | result: fail | cantidad: {len(bets)}')
             logging.error(f"action: receive_message | result: fail | error: {e}")
         finally:
             self.current_client_socket.close()

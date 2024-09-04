@@ -158,6 +158,11 @@ func (c *Client) StartClientLoop() {
 				log.Infof("action: apuesta_enviada | result: success | bets_sent: %d", len(batchToSend.bets))
 			}
 
+			if string(serverResponse) == "ERROR\n" {
+				log.Errorf("action: apuesta_enviada | result: fail | bets_sent: %d", len(batchToSend.bets))
+				return
+			}
+
 			if err != nil {
 				log.Errorf("action: receive_message | result: fail | client_id: %v | error: %v",
 					c.config.ID,
