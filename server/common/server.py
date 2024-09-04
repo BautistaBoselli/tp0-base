@@ -59,7 +59,7 @@ class Server:
             msg = self.read_bet()
             bets = decode_message(msg)
             store_bets([bets])
-            logging.info(f'action: store_bets | result: success | amount of bets: {len([bets])}')
+            logging.info(f'action: apuesta_almacenada | result: success | dni: {bets.document} | numero: {bets.number}.')
             addr = self.current_client_socket.getpeername()
             Bet.log_fields(bets, addr[0])
             self.safe_write("BETS ACK\n")
