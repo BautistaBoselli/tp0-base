@@ -71,11 +71,11 @@ class Server:
         try:
             msg = self.read_bets()
             bets = self.parse_bets(msg)
-            # bets = decode_message(msg)
-            store_bets([bets])
+            logging.info(f'bets to store: {bets}')
+            store_bets(bets)
             logging.info(f'action: store_bets | result: success | amount of bets: {len([bets])}')
             addr = self.current_client_socket.getpeername()
-            Bet.log_fields(bets, addr[0])
+            logging.info(f'action: receive_message | result: success | ip: {addr[0]} | msg: {msg}')
             self.safe_write("BETS ACK\n")
         except OSError as e:
             logging.error(f"action: receive_message | result: fail | error: {e}")

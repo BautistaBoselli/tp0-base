@@ -25,11 +25,6 @@ class Bet:
         self.document = document
         self.birthdate = datetime.date.fromisoformat(birthdate)
         self.number = int(number)
-    
-    def log_fields(self, ip):
-        # Log the fields of the Bet
-        fields = ', '.join(f'{key}={value}' for key, value in self.__dict__.items())
-        logging.info(f'action: receive_message | result: success | ip: {ip} | msg: {fields}')
 
 """ Checks whether a bet won the prize or not. """
 def has_won(bet: Bet) -> bool:

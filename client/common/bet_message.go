@@ -4,7 +4,6 @@ import (
 	"bytes"
 	"encoding/binary"
 	"encoding/csv"
-	"os"
 )
 
 type BetMessage struct {
@@ -89,29 +88,6 @@ func (bm *BetMessage) SerializeLength(buf *bytes.Buffer, length int32) error {
 	}
 
 	return nil
-}
-
-// obtainBetMessage reads the environment variables and returns a BetMessage
-func obtainBetMessage() *BetMessage {
-	agency := os.Getenv("AGENCIA")
-	name := os.Getenv("NOMBRE")
-	surname := os.Getenv("APELLIDO")
-	dni := os.Getenv("DNI")
-	birthdate := os.Getenv("NACIMIENTO")
-	betNumber := os.Getenv("NUMERO")
-
-	if agency == "" || name == "" || surname == "" || dni == "" || birthdate == "" || betNumber == "" {
-		return nil
-	}
-
-	return &BetMessage{
-		agency:    agency,
-		name:      name,
-		surname:   surname,
-		dni:       dni,
-		birthdate: birthdate,
-		betNumber: betNumber,
-	}
 }
 
 func obtainBetMessages(csvReader *csv.Reader, agencyId string) ([]BetMessage, error) {

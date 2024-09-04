@@ -131,9 +131,6 @@ func (c *Client) StartClientLoop() {
 		case <-time.After(c.config.LoopPeriod):
 		default:
 			batchToSend, bytesToSend, err := c.getValidData(bets)
-			log.Infof("Entraste al default")
-			// log.Infof("bets: %v", bets)
-			log.Infof("batchToSend: %v", batchToSend)
 			if err != nil {
 				log.Errorf("action: serialize_batch | result: fail | client_id: %v | error: %v", c.config.ID, err)
 				return
@@ -184,10 +181,7 @@ func (c *Client) StartClientLoop() {
 }
 
 func (c *Client) getValidData(bets []BetMessage) (BetBatch, []byte, error) {
-	log.Infof("dentro de getValidData")
-	log.Infof("batchMaxAmount: %v", c.config.BatchMaxAmount)
 	batchToSend := NewBetBatch(c.config.BatchMaxAmount, bets)
-	log.Infof("getvalidData batchToSend: %v", batchToSend)
 	bytesToSend, err := batchToSend.Serialize()
 	if err != nil {
 		return batchToSend, nil, err
