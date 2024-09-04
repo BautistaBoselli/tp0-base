@@ -2,6 +2,7 @@ package common
 
 import (
 	"encoding/csv"
+	"fmt"
 	"net"
 	"os"
 	"os/signal"
@@ -56,7 +57,98 @@ func (c *Client) createClientSocket() error {
 	return nil
 }
 
-func (c *Client) sendBetMessage(bytes []byte) error {
+// StartClientLoop Send messages to the client until some time threshold is met
+func (c *Client) StartClientLoop() {
+	file, err := c.getFile()
+	if err != nil {
+		return
+	}
+	defer file.Close()
+
+	csvReader := csv.NewReader(file)
+	bets, err := obtainBetMessages(csvReader, c.config.ID)
+	if err != nil {
+		log.Errorf("action: obtain_bet_messages | result: fail | client_id: %v | error: %v", c.config.ID, err)
+		return
+	}
+
+	sigs := make(chan os.Signal, 1)
+	signal.Notify(sigs, syscall.SIGTERM)
+
+	for len(bets) > 0 {
+		select {
+		case <-sigs:
+			if c.conn != nil {
+				c.conn.Close()
+			}
+			return
+		case <-time.After(c.config.LoopPeriod):
+		default:
+			batchToSend, bytesToSend, err := c.getValidData(bets)
+			if err != nil || bytesToSend == nil {
+				log.Errorf("action: serialize_batch | result: fail | client_id: %v | error: %v", c.config.ID, err)
+				return
+			}
+			bets = bets[len(batchToSend.bets):]
+
+			err = c.createClientSocket()
+			if err != nil {
+				bets = nil
+				log.Criticalf("server socket not found, exiting")
+				c.conn.Close()
+				return
+			}
+
+			err = c.sendMessage(bytesToSend)
+			if err != nil {
+				log.Errorf("action: send_bet_message | result: fail | client_id: %v | error: %v", c.config.ID, err)
+				return
+			}
+
+			readSize := len("BETS ACK\n")
+			serverResponse := make([]byte, readSize)
+			serverResponse, err = c.getServerResponse(serverResponse, readSize)
+
+			if string(serverResponse) == "BETS ACK\n" {
+				log.Infof("action: apuesta_enviada | result: success | bets_sent: %d", len(batchToSend.bets))
+				// If there are no more bets to send, send a finish message after receiving the last ACK
+				if len(bets) == 0 {
+					textToSend := fmt.Sprintf("FINISH:%v\n", c.config.ID)
+					bytes := []byte(textToSend)
+					c.sendMessage(bytes)
+					log.Infof("action: FINISH SENT | result: success | client_id: %v", c.config.ID)
+				}
+			}
+
+			if string(serverResponse) == "ERROR\n" {
+				log.Errorf("action: apuesta_enviada | result: fail | bets_sent: %d", len(batchToSend.bets))
+				bets = nil
+				return
+			}
+			c.conn.Close()
+
+			if err != nil {
+				log.Errorf("action: receive_message | result: fail | client_id: %v | error: %v",
+					c.config.ID,
+					err,
+				)
+				return
+			}
+
+			log.Infof("action: receive_message | result: success | client_id: %v | msg: %v",
+				c.config.ID,
+				string(serverResponse),
+			)
+
+			// Wait a time between sending one message and the next one
+			time.Sleep(c.config.LoopPeriod)
+
+		}
+	}
+	log.Infof("action: loop_finished | result: success | client_id: %v", c.config.ID)
+}
+
+func (c *Client) sendMessage(bytes []byte) error {
 	// Send the message to the server in a loop until all the message is sent to avoid short writes
 	written := 0
 	for written < len(bytes) {
@@ -101,90 +193,6 @@ func (c *Client) getFile() (*os.File, error) {
 		return nil, err
 	}
 	return file, nil
-}
-
-// StartClientLoop Send messages to the client until some time threshold is met
-func (c *Client) StartClientLoop() {
-	file, err := c.getFile()
-	if err != nil {
-		return
-	}
-	defer file.Close()
-
-	csvReader := csv.NewReader(file)
-	bets, err := obtainBetMessages(csvReader, c.config.ID)
-	if err != nil {
-		log.Errorf("action: obtain_bet_messages | result: fail | client_id: %v | error: %v", c.config.ID, err)
-		return
-	}
-
-	sigs := make(chan os.Signal, 1)
-	signal.Notify(sigs, syscall.SIGTERM)
-
-	for len(bets) > 0 {
-		select {
-		case <-sigs:
-			if c.conn != nil {
-				c.conn.Close()
-			}
-			return
-		case <-time.After(c.config.LoopPeriod):
-		default:
-			batchToSend, bytesToSend, err := c.getValidData(bets)
-			if err != nil || bytesToSend == nil {
-				log.Errorf("action: serialize_batch | result: fail | client_id: %v | error: %v", c.config.ID, err)
-				return
-			}
-			bets = bets[len(batchToSend.bets):]
-
-			err = c.createClientSocket()
-			if err != nil {
-				bets = nil
-				log.Criticalf("server socket not found, exiting")
-				c.conn.Close()
-				return
-			}
-
-			err = c.sendBetMessage(bytesToSend)
-			if err != nil {
-				log.Errorf("action: send_bet_message | result: fail | client_id: %v | error: %v", c.config.ID, err)
-				return
-			}
-
-			readSize := len("BETS ACK\n")
-			serverResponse := make([]byte, readSize)
-			serverResponse, err = c.getServerResponse(serverResponse, readSize)
-
-			c.conn.Close()
-			if string(serverResponse) == "BETS ACK\n" {
-				log.Infof("action: apuesta_enviada | result: success | bets_sent: %d", len(batchToSend.bets))
-			}
-
-			if string(serverResponse) == "ERROR\n" {
-				log.Errorf("action: apuesta_enviada | result: fail | bets_sent: %d", len(batchToSend.bets))
-				bets = nil
-				return
-			}
-
-			if err != nil {
-				log.Errorf("action: receive_message | result: fail | client_id: %v | error: %v",
-					c.config.ID,
-					err,
-				)
-				return
-			}
-
-			log.Infof("action: receive_message | result: success | client_id: %v | msg: %v",
-				c.config.ID,
-				string(serverResponse),
-			)
-
-			// Wait a time between sending one message and the next one
-			time.Sleep(c.config.LoopPeriod)
-
-		}
-	}
-	log.Infof("action: loop_finished | result: success | client_id: %v", c.config.ID)
 }
 
 func (c *Client) getValidData(bets []BetMessage) (BetBatch, []byte, error) {
