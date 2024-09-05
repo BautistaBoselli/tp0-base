@@ -173,10 +173,14 @@ Finalmente, tuve que hacer varios cambios en el cliente para poder recibir el re
 
 ### Ejercicio N°8:
 
-Modificar el servidor para que permita aceptar conexiones y procesar mensajes en paralelo.
-En este ejercicio es importante considerar los mecanismos de sincronización a utilizar para el correcto funcionamiento de la persistencia.
+Para este ejercicio solo fue necesario modificar el archivo de server.py. Se implementó una solución multiprocessing para que el servidor pueda atender a varios clientes a la vez y de paso, evitar cualquier posible conflicto con el GIL
+El flujo es el siguiente:
 
-En caso de que el alumno implemente el servidor Python utilizando _multithreading_, deberán tenerse en cuenta las [limitaciones propias del lenguaje](https://wiki.python.org/moin/GlobalInterpreterLock).
+1. El server se inicializa ahora con un manager, para manejar los sockets de los clientes que se compartiran entre los procesos, un lock para escribir en el archivo de apuestas y un diccionario para guardar los sockets de los clientes que enviaron el último batch. Ademas un lock y un Value para manejar la cantidad de agencias que enviaron el último batch. (el lock es para que el proceso central pueda leer sin que escriban los procesos hijos)
+2. El proceso principal se encarga de aceptar las conexiones y crear un nuevo proceso hijo para atender a cada cliente que se conecta.
+3. Cada proceso hijo se encarga de recibir los batches del cliente, procesarlos, escribirlos en el archivo tomando el lock, y enviar la respuesta correspondiente. Si el cliente envía el último batch, el proceso hijo se encarga de agregar el socket del cliente a la lista de sockets de clientes que enviaron el último batch y de incrementar el contador de agencias que enviaron el último batch.
+4. Cuando el proceso principal que escucha las conexiones ya no escucha más conexiones debido a que los clientes enviaron el último batch, se lanza una excepción que verifica si se tiene la cantidad correcta de agencias, en cuyo caso se eligen los ganadores y se envían las respuestas a los clientes.
+5. Finalmente se joinean todos los procesos hijos y se puede apagar el servidor cuando reciba un SIGTERM, ejecutando el graceful shutdown.
 
 ## Consideraciones Generales
 

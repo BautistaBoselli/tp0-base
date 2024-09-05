@@ -2,7 +2,6 @@ import signal
 import socket
 import logging
 import multiprocessing
-import sys
 import time
 
 from common.utils import has_won, load_bets, prepend_length, serialize_winners, store_bets, decode_message, Bet
@@ -34,6 +33,8 @@ class Server:
         if self.current_client_socket:
             self.current_client_socket.close()
         self._server_socket.close()
+        for process in self.processes:
+            process.join()
 
     def run(self):
         """
@@ -67,8 +68,7 @@ class Server:
 
             time.sleep(0.1)  # Short sleep to prevent busy-waiting
 
-        for process in self.processes:
-            process.join()
+        self.graceful_shutdown(None, None)
 
     def __handle_client_connection(self, client_socket, addr):
         """
@@ -191,7 +191,6 @@ class Server:
             dict_agency_dni[agency].append(dni)
         serialized_dict = {key: serialize_winners(value) for key, value in dict_agency_dni.items()}
         msg_dict = {key: prepend_length(value) for key, value in serialized_dict.items()}
-        logging.info(f'current clients: {self.clients}')
         for agency_id, msg in msg_dict.items():
             if agency_id in self.clients:
                 client_socket = self.clients[agency_id]
