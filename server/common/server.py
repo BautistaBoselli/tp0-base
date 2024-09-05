@@ -8,6 +8,7 @@ from common.utils import has_won, load_bets, serialize_winners, store_bets, deco
 
 BET_BATCH_MESSAGE_LENGTH = 2
 BET_MESSAGE_LENGTH = 2
+FIRST_BYTE_1 = b'\x01'
 
 class Server:
     def __init__(self, port, listen_backlog):
@@ -20,7 +21,6 @@ class Server:
         signal.signal(signal.SIGTERM, self.graceful_shutdown)
 
     def graceful_shutdown(self, signum, frame):
-        
         self.stop_processes = True
         if self.current_client_socket:
             self.current_client_socket.close()
@@ -70,12 +70,9 @@ class Server:
         client socket will also be closed
         """
         try:
-            # If a error happens while reading an exception will be raised and an error will be logged and sent to the client
             first_byte = self.safe_read(1)
             if not first_byte:
                 raise OSError("Connection closed")
-            # logging.info(f'the first byte is {first_byte}')
-            # If first byte is a "1", the client is telling he finished and we can get the bets
             msg = self.read_bets()
             bets = self.parse_bets(msg)
             if not bets:
@@ -86,17 +83,10 @@ class Server:
             # Only first bet in batch is logged, for control purposes
             Bet.logFields(bets[0], addr[0])
             self.safe_write("BETS ACK\n")
-            if first_byte == b'\x01':
-                logging.info("FINISHED_RECEIVED")
-                # self.safe_write("READY\n")
-                all_bets = load_bets()
-                winners = []
-                for bet in all_bets:
-                    if has_won(bet):
-                        winners.append(bet)
-                logging.info(f'action: sorteo | result: success')
-                self.send_winners(winners)
-                   
+            # If the first byte is a "1", the client is telling he finished and we should
+            #  store the socket connection to inform the client of the winners
+            if first_byte == FIRST_BYTE_1:
+                self.pick_winners()
         except OSError as e:
             logging.error(f'action: apuesta_recibida | result: fail | cantidad: {len(bets)}')
             logging.error(f"action: receive_message | result: fail | error: {e}") 
@@ -104,14 +94,16 @@ class Server:
             self.safe_write("ERROR\n")
             logging.error(f"action: receive_message | result: fail | error: {e}")  
             logging.critical(f'invalid bets found, shutting down connection')
-            self.stop_processes = True
-            if self.current_client_socket:
-                self.current_client_socket.close()
-            self._server_socket.close()
+            self.graceful_shutdown(signal.SIGTERM, None)
         finally:
             self.current_client_socket.close()
 
+
     def read_bets(self):
+        """
+        Reads the first 2 bytes of the message to get the length of the batch.
+        Then reads the batch of bets and returns it.
+        """
         msg_len_bytes = self.safe_read(BET_BATCH_MESSAGE_LENGTH)
         if not msg_len_bytes:
             raise OSError("Connection closed")
@@ -121,8 +113,13 @@ class Server:
         if not msg:
             raise OSError("Connection closed")
         return msg
+    
 
     def parse_bets(self, msg):
+        """
+        Parses the bets from the message received by decoding each bet.
+        If there is an error like a missing field, the function returns an empty list.
+        """
         bets = []
         while msg:
             try:
@@ -136,7 +133,9 @@ class Server:
                 logging.error(f'action: apuesta_recibida | result: fail | cantidad: {len(bets)}')
                 return []
         return bets
+    
 
+    # This function avoids short-reads by reading from the socket the whole message until finished
     def safe_read(self, size):
         data = b''
         while len(data) < size:
@@ -145,6 +144,7 @@ class Server:
                 return None
             data += chunk
         return data
+    
     
     # This function avoids short-writes by writing to the socket the whole message until finished
     def safe_write(self, msg):
@@ -155,7 +155,25 @@ class Server:
             sent = self.current_client_socket.send(msg_bytes)
             msg_bytes = msg_bytes[sent:]
 
+
+    def pick_winners(self):
+        """
+        Picks the winners from the bets stored in the file.
+        """
+        logging.info("FINISHED_RECEIVED")
+        all_bets = load_bets()
+        winners = []
+        for bet in all_bets:
+            if has_won(bet):
+                winners.append(bet)
+        logging.info(f'action: sorteo | result: success')
+        self.send_winners(winners)
+
+
     def send_winners(self, winners):
+        """
+        Sends the winners to the client.
+        """
         winners_dni = [winner.document for winner in winners]
         winners_msg = serialize_winners(winners_dni)
         length = len(winners_msg).to_bytes(2, 'big')
