@@ -23,6 +23,8 @@ class Server:
         signal.signal(signal.SIGTERM, self.graceful_shutdown)
         self.clients = {}
         self.connection_queue = queue.Queue()
+        self.bets_lock = threading.Lock()
+        self.all_bets_received = threading.Event()
         self.workers = []
         for _ in range(MAX_WORKERS):
             worker = threading.Thread(target=self.worker_thread)
@@ -35,22 +37,20 @@ class Server:
         if self.current_client_socket:
             self.current_client_socket.close()
         self._server_socket.close()
-
+        self.all_bets_received.set()  # Ensure the main thread can exit
 
     def run(self):
-        """
-        Dummy Server loop
+        accept_thread = threading.Thread(target=self.accept_connections)
+        accept_thread.start()
 
-        Server that accept a new connections and establishes a
-        communication with a client. After client with communucation
-        finishes, servers starts to accept new connections again
-        """
+        # Wait for all bets to be received or for the server to be stopped
+        self.all_bets_received.wait()
 
-        while not self.stop_processes:
-            if len(self.clients.keys()) == NUMBER_OF_AGENCIES:
-                logging.info("All agencies connected")
-                self.pick_winners()
-                break
+        if not self.stop_processes:
+            self.pick_winners()
+
+    def accept_connections(self):
+        while not self.stop_processes and len(self.clients) < NUMBER_OF_AGENCIES:
             try:
                 client_socket, addr = self._server_socket.accept()
                 self.connection_queue.put((client_socket, addr))
@@ -58,6 +58,10 @@ class Server:
                 if self.stop_processes:
                     break
                 logging.error(f"Error accepting connection: {e}")
+
+        if not self.stop_processes:
+            self.pick_winners()
+
 
     def worker_thread(self):
         while not self.stop_processes:
@@ -76,7 +80,8 @@ class Server:
             bets = self.parse_bets(msg)
             if not bets:
                 raise ValueError("Invalid message")
-            store_bets(bets)
+            with self.bets_lock:
+                store_bets(bets)
             logging.info(f'action: apuesta_recibida | result: success | cantidad: {len(bets)}')
             # Only first bet in batch is logged, for control purposes
             Bet.logFields(bets[0], addr[0])
@@ -88,6 +93,10 @@ class Server:
                 if not agency_id:
                     raise OSError("Connection closed")
                 self.clients[agency_id] = client_socket
+                logging.info(f'clients: {len(self.clients.keys())}')
+                logging.info(f'current clients: {self.clients}')
+                if len(self.clients) == NUMBER_OF_AGENCIES:
+                    self.all_bets_received.set()
         except (OSError, ValueError) as e:
             logging.error(f"Error handling client: {e}")
         finally:
@@ -155,6 +164,7 @@ class Server:
         msg_dict = {key: prepend_length(value) for key, value in serialized_dict.items()}
         logging.info(f'current clients: {self.clients}')
         for agency_id, msg in msg_dict.items():
+            logging.info(f'agency_id: {agency_id} | winners: {msg}')
             while len(msg) > 0:
                 sent = self.clients[agency_id].send(msg)
                 msg = msg[sent:]
