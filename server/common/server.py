@@ -1,8 +1,8 @@
 import signal
 import socket
 import logging
-import threading
-import queue
+import multiprocessing
+import sys
 
 from common.utils import has_won, load_bets, prepend_length, serialize_winners, store_bets, decode_message, Bet
 
@@ -10,74 +10,63 @@ BET_BATCH_MESSAGE_LENGTH = 2
 BET_MESSAGE_LENGTH = 2
 FIRST_BYTE_1 = b'\x01'
 NUMBER_OF_AGENCIES = 5
-MAX_WORKERS = 10  # Number of worker threads
 
 class Server:
     def __init__(self, port, listen_backlog):
         # Initialize server socket
         self._server_socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
         self._server_socket.bind(('', port))
+        self._server_socket.settimeout(1)
         self._server_socket.listen(listen_backlog)
         self.stop_processes = False
         self.current_client_socket = None
         signal.signal(signal.SIGTERM, self.graceful_shutdown)
-        self.clients = {}
-        self.connection_queue = queue.Queue()
-        self.bets_lock = threading.Lock()
-        self.all_bets_received = threading.Event()
-        self.workers = []
-        for _ in range(MAX_WORKERS):
-            worker = threading.Thread(target=self.worker_thread)
-            worker.daemon = True
-            worker.start()
-            self.workers.append(worker)
+        self.manager = multiprocessing.Manager()
+        self.clients = self.manager.dict()
+        self.bets_lock = multiprocessing.Lock()
+        self.agencies_connected = multiprocessing.Value('i', 0)
+        self.agencies_lock = multiprocessing.Lock()
 
     def graceful_shutdown(self, signum, frame):
         self.stop_processes = True
         if self.current_client_socket:
             self.current_client_socket.close()
         self._server_socket.close()
-        # This event allows the main thread to continue and pick the winners
-        self.all_bets_received.set()  
 
     def run(self):
-        accept_thread = threading.Thread(target=self.accept_connections)
-        accept_thread.start()
-
-        # Wait for all bets to be received or for the server to be stopped
-        self.all_bets_received.wait()
-
-        if not self.stop_processes:
-            self.pick_winners()
-
-    def accept_connections(self):
-        while not self.stop_processes and len(self.clients) < NUMBER_OF_AGENCIES:
-            try:
-                client_socket, addr = self._server_socket.accept()
-                self.connection_queue.put((client_socket, addr))
-            except OSError as e:
-                if self.stop_processes:
-                    break
-                logging.error(f"Error accepting connection: {e}")
-
-        if not self.stop_processes:
-            self.pick_winners()
-
-
-    def worker_thread(self):
+        """
+        Concurrent server loop using multiprocessing
+        """
+        processes = []
         while not self.stop_processes:
             try:
-                client_socket, addr = self.connection_queue.get(timeout=1)
-                self.handle_client(client_socket, addr)
-            except queue.Empty:
-                continue
+                client_socket, addr = self._server_socket.accept()
+                process = multiprocessing.Process(target=self.__handle_client_connection, args=(client_socket, addr))
+                processes.append(process)
+                process.start()
+            except OSError as e:
+                logging.error(f"Error accepting connection: {e}")
+                # break
 
-    def handle_client(self, client_socket, addr):
+            with self.agencies_lock:
+                if self.agencies_connected.value == NUMBER_OF_AGENCIES:
+                    logging.info("All agencies connected")
+                    self.pick_winners()
+                    break
+
+        for process in processes:
+            process.join()
+
+    def __handle_client_connection(self, client_socket, addr):
+        """
+        Handle client connection in a separate process
+        """
+        self.current_client_socket = client_socket
         try:
-            first_byte = self.safe_read(client_socket, 1)
+            first_byte = self.safe_read(1)
             if not first_byte:
                 raise OSError("Connection closed")
-            msg = self.read_bets(client_socket)
+            msg = self.read_bets()
             bets = self.parse_bets(msg)
             if not bets:
                 raise ValueError("Invalid message")
@@ -86,36 +75,40 @@ class Server:
             logging.info(f'action: apuesta_recibida | result: success | cantidad: {len(bets)}')
             # Only first bet in batch is logged, for control purposes
             Bet.logFields(bets[0], addr[0])
-            self.safe_write(client_socket, "BETS ACK\n")
+            self.safe_write("BETS ACK\n")
             # If the first byte is a "1", the client is telling he finished and we should
             #  store the socket connection to inform the client of the winners
             if first_byte == FIRST_BYTE_1:
-                agency_id = int(self.safe_read(client_socket, 1).decode('utf-8'))
+                # Read one more byte to get the agency id
+                agency_id = self.safe_read(1)
+                agency_id = int(agency_id.decode('utf-8'))
                 if not agency_id:
                     raise OSError("Connection closed")
+                # Store the socket connection to inform the client of the winners
                 self.clients[agency_id] = client_socket
-                logging.info(f'clients: {len(self.clients.keys())}')
-                logging.info(f'current clients: {self.clients}')
-                if len(self.clients) == NUMBER_OF_AGENCIES:
-                    self.all_bets_received.set()
+                with self.agencies_lock:
+                    self.agencies_connected.value += 1
         except (OSError, ValueError) as e:
-            logging.error(f"Error handling client: {e}")
+            logging.error(f'action: apuesta_recibida | result: fail | cantidad: {len(bets)}')
+            logging.error(f"action: receive_message | result: fail | error: {e}") 
         finally:
-            if first_byte != FIRST_BYTE_1:
-                client_socket.close()
+            client_socket.close()
 
-    def read_bets(self, client_socket):
+    def read_bets(self):
         """
-        Reads the bets from the client socket.
+        Reads the first 2 bytes of the message to get the length of the batch.
+        Then reads the batch of bets and returns it.
         """
-        msg = self.safe_read(client_socket, BET_BATCH_MESSAGE_LENGTH)
-        if not msg:
+        msg_len_bytes = self.safe_read(BET_BATCH_MESSAGE_LENGTH)
+        if not msg_len_bytes:
             raise OSError("Connection closed")
-        batch_len = int.from_bytes(msg, 'big')
-        msg = self.safe_read(client_socket, batch_len)
+        msg_length = int.from_bytes(msg_len_bytes, 'big')
+        logging.info(f'action: receive_message | result: in_progress | msg_length: {msg_length} ')
+        msg = self.safe_read(msg_length)
         if not msg:
             raise OSError("Connection closed")
         return msg
+    
 
     def parse_bets(self, msg):
         """
@@ -135,11 +128,34 @@ class Server:
                 logging.error(f'action: apuesta_recibida | result: fail | cantidad: {len(bets)}')
                 return []
         return bets
+    
+
+    # This function avoids short-reads by reading from the socket the whole message until finished
+    def safe_read(self, size):
+        data = b''
+        while len(data) < size:
+            chunk = self.current_client_socket.recv(size - len(data))
+            if not chunk:
+                return None
+            data += chunk
+        return data
+    
+    
+    # This function avoids short-writes by writing to the socket the whole message until finished
+    def safe_write(self, msg):
+        msg_bytes = msg.encode('utf-8')
+        length = len(msg_bytes).to_bytes(2, 'big')
+        msg_bytes = length + msg_bytes
+        while len(msg_bytes) > 0:
+            sent = self.current_client_socket.send(msg_bytes)
+            msg_bytes = msg_bytes[sent:]
+
 
     def pick_winners(self):
         """
         Picks the winners from the bets stored in the file.
         """
+        logging.info("FINISHED_RECEIVED")
         all_bets = load_bets()
         winners = []
         for bet in all_bets:
@@ -151,17 +167,18 @@ class Server:
 
     def send_winners(self, winners):
         """
-        Sends the winners to all client agencies.
+        Sends the winners to the clients.
         """
         winners_agency = [winner.agency for winner in winners]
         winners_dni = [winner.document for winner in winners]
-        dict_agency_dni = {agency: [] for agency in self.clients.keys()}  # Initialize with all agencies
+        dict_agency_dni = {}
         for agency, dni in zip(winners_agency, winners_dni):
+            if agency not in dict_agency_dni:
+                dict_agency_dni[agency] = []
             dict_agency_dni[agency].append(dni)
-        
         serialized_dict = {key: serialize_winners(value) for key, value in dict_agency_dni.items()}
         msg_dict = {key: prepend_length(value) for key, value in serialized_dict.items()}
-        
+        logging.info(f'current clients: {self.clients}')
         for agency_id, msg in msg_dict.items():
             if agency_id in self.clients:
                 client_socket = self.clients[agency_id]
@@ -171,25 +188,3 @@ class Server:
                         msg = msg[sent:]
                 except OSError as e:
                     logging.error(f"Error sending winners to agency {agency_id}: {e}")
-            else:
-                logging.error(f"No connection found for agency {agency_id}")
-
-    # This function avoids short-reads by reading from the socket the whole message until finished
-    def safe_read(self, client_socket, size):
-        data = b''
-        while len(data) < size:
-            chunk = client_socket.recv(size - len(data))
-            if not chunk:
-                return None
-            data += chunk
-        return data
-    
-    # This function avoids short-writes by writing to the socket the whole message until finished
-    def safe_write(self, client_socket, msg):
-        msg_bytes = msg.encode('utf-8')
-        length = len(msg_bytes).to_bytes(2, 'big')
-        msg_bytes = length + msg_bytes
-        while len(msg_bytes) > 0:
-            sent = client_socket.send(msg_bytes)
-            msg_bytes = msg_bytes[sent:]
-
