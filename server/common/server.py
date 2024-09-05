@@ -4,7 +4,7 @@ import logging
 import signal
 import sys
 
-from common.utils import store_bets, decode_message, Bet
+from common.utils import has_won, load_bets, serialize_winners, store_bets, decode_message, Bet
 
 BET_BATCH_MESSAGE_LENGTH = 2
 BET_MESSAGE_LENGTH = 2
@@ -74,11 +74,8 @@ class Server:
             first_byte = self.safe_read(1)
             if not first_byte:
                 raise OSError("Connection closed")
-            logging.info(f'the first byte is {first_byte}')
-            # # If first byte is a "1", the client is telling he finished and we can get the bets
-            # if first_byte == b'1':
-            #     logging.info("FINISHED_RECEIVED")
-            #     self.safe_write("READY\n")
+            # logging.info(f'the first byte is {first_byte}')
+            # If first byte is a "1", the client is telling he finished and we can get the bets
             msg = self.read_bets()
             bets = self.parse_bets(msg)
             if not bets:
@@ -89,6 +86,17 @@ class Server:
             # Only first bet in batch is logged, for control purposes
             Bet.logFields(bets[0], addr[0])
             self.safe_write("BETS ACK\n")
+            if first_byte == b'\x01':
+                logging.info("FINISHED_RECEIVED")
+                # self.safe_write("READY\n")
+                all_bets = load_bets()
+                winners = []
+                for bet in all_bets:
+                    if has_won(bet):
+                        winners.append(bet)
+                logging.info(f'action: sorteo | result: success')
+                self.send_winners(winners)
+                   
         except OSError as e:
             logging.error(f'action: apuesta_recibida | result: fail | cantidad: {len(bets)}')
             logging.error(f"action: receive_message | result: fail | error: {e}") 
@@ -146,3 +154,12 @@ class Server:
         while len(msg_bytes) > 0:
             sent = self.current_client_socket.send(msg_bytes)
             msg_bytes = msg_bytes[sent:]
+
+    def send_winners(self, winners):
+        winners_dni = [winner.document for winner in winners]
+        winners_msg = serialize_winners(winners_dni)
+        length = len(winners_msg).to_bytes(2, 'big')
+        winners_msg = length + winners_msg
+        while len(winners_msg) > 0:
+            sent = self.current_client_socket.send(winners_msg)
+            winners_msg = winners_msg[sent:]

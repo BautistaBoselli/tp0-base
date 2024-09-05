@@ -114,6 +114,9 @@ func (c *Client) StartClientLoop() {
 
 			if string(serverResponse) == "BETS ACK\n" {
 				log.Infof("action: apuesta_enviada | result: success | bets_sent: %d", len(batchToSend.bets))
+				if len(bets) == 0 {
+					c.waitLotteryResults()
+				}
 			}
 
 			if string(serverResponse) == "ERROR\n" {
@@ -226,4 +229,19 @@ func (c *Client) getServerResponse() ([]byte, error) {
 		)
 	}
 	return serverResponse, err
+}
+
+func (c *Client) waitLotteryResults() error {
+	serverResponse, err := c.getServerResponse()
+	if err != nil {
+		log.Errorf("action: receive_message | result: fail | client_id: %v | error: %v", c.config.ID, err)
+		return err
+	}
+	amountOfWinners, err := Decode(serverResponse)
+	if err != nil {
+		log.Errorf("action: decode_winners | result: fail | client_id: %v | error: %v", c.config.ID, err)
+		return err
+	}
+	log.Infof("action: consulta_ganadores | result: success | cant_ganadores: %d", amountOfWinners)
+	return nil
 }

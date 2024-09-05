@@ -89,3 +89,12 @@ def decode_message(message: bytes) -> Bet:
               decoded_strings[3], decoded_strings[4], decoded_strings[5])
     
     return bet
+
+def serialize_winners(winners):
+    data = bytearray()
+
+    for winner in winners:
+        data += len(winner).to_bytes(2, 'big')
+        data += winner.encode('utf-8')
+
+    return data
