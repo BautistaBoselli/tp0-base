@@ -9,6 +9,8 @@ import (
 	"syscall"
 	"time"
 
+	"errors"
+
 	"github.com/op/go-logging"
 )
 
@@ -124,7 +126,7 @@ func (c *Client) StartClientLoop() {
 			if string(serverResponse) == "BETS ACK\n" {
 				log.Infof("action: apuesta_enviada | result: success | bets_sent: %d", len(batchToSend.bets))
 				if len(bets) == 0 {
-					c.waitLotteryResults()
+					c.waitLotteryResults(sigs)
 				}
 			}
 
@@ -240,19 +242,33 @@ func (c *Client) getServerResponse() ([]byte, error) {
 	return serverResponse, err
 }
 
-func (c *Client) waitLotteryResults() error {
-	serverResponse, err := c.getServerResponse()
-	if err != nil {
-		log.Errorf("action: receive_message | result: fail | client_id: %v | error: %v", c.config.ID, err)
-		return err
-	}
+func (c *Client) waitLotteryResults(sigs chan os.Signal) error {
+	lotteryResult := make(chan []byte)
 
-	amountOfWinners, dnis, err := Decode(serverResponse)
-	if err != nil {
-		log.Errorf("action: decode_winners | result: fail | client_id: %v | error: %v", c.config.ID, err)
-		return err
+	go func() {
+		serverResponse, err := c.getServerResponse()
+		if err != nil {
+			log.Errorf("action: receive_message | result: fail | client_id: %v | error: %v", c.config.ID, err)
+		}
+		lotteryResult <- serverResponse
+	}()
+
+	select {
+	case response := <-lotteryResult:
+		amountOfWinners, dnis, err := Decode(response)
+		if err != nil {
+			log.Errorf("action: decode_winners | result: fail | client_id: %v | error: %v", c.config.ID, err)
+			return err
+		}
+		log.Infof("dnis ganadores: %v", dnis)
+		log.Infof("action: consulta_ganadores | result: success | cant_ganadores: %d", amountOfWinners)
+		if c.conn != nil {
+			c.conn.Close()
+		}
+		return nil
+
+	case <-sigs:
+		log.Infof("action: wait_lottery_results | result: interrupted | client_id: %v", c.config.ID)
+		return errors.New("interrupted by SIGTERM")
 	}
-	log.Infof("dnis ganadores: %v", dnis)
-	log.Infof("action: consulta_ganadores | result: success | cant_ganadores: %d", amountOfWinners)
-	return nil
 }
