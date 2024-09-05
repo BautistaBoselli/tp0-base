@@ -37,7 +37,8 @@ class Server:
         if self.current_client_socket:
             self.current_client_socket.close()
         self._server_socket.close()
-        self.all_bets_received.set()  # Ensure the main thread can exit
+        # This event allows the main thread to continue and pick the winners
+        self.all_bets_received.set()  
 
     def run(self):
         accept_thread = threading.Thread(target=self.accept_connections)
@@ -139,7 +140,6 @@ class Server:
         """
         Picks the winners from the bets stored in the file.
         """
-        logging.info("FINISHED_RECEIVED")
         all_bets = load_bets()
         winners = []
         for bet in all_bets:
@@ -151,24 +151,28 @@ class Server:
 
     def send_winners(self, winners):
         """
-        Sends the winners to the client.
+        Sends the winners to all client agencies.
         """
         winners_agency = [winner.agency for winner in winners]
         winners_dni = [winner.document for winner in winners]
-        dict_agency_dni = {}
+        dict_agency_dni = {agency: [] for agency in self.clients.keys()}  # Initialize with all agencies
         for agency, dni in zip(winners_agency, winners_dni):
-            if agency not in dict_agency_dni:
-                dict_agency_dni[agency] = []
             dict_agency_dni[agency].append(dni)
+        
         serialized_dict = {key: serialize_winners(value) for key, value in dict_agency_dni.items()}
         msg_dict = {key: prepend_length(value) for key, value in serialized_dict.items()}
-        logging.info(f'current clients: {self.clients}')
+        
         for agency_id, msg in msg_dict.items():
-            logging.info(f'agency_id: {agency_id} | winners: {msg}')
-            while len(msg) > 0:
-                sent = self.clients[agency_id].send(msg)
-                msg = msg[sent:]
-
+            if agency_id in self.clients:
+                client_socket = self.clients[agency_id]
+                try:
+                    while len(msg) > 0:
+                        sent = client_socket.send(msg)
+                        msg = msg[sent:]
+                except OSError as e:
+                    logging.error(f"Error sending winners to agency {agency_id}: {e}")
+            else:
+                logging.error(f"No connection found for agency {agency_id}")
 
     # This function avoids short-reads by reading from the socket the whole message until finished
     def safe_read(self, client_socket, size):
@@ -179,7 +183,6 @@ class Server:
                 return None
             data += chunk
         return data
-    
     
     # This function avoids short-writes by writing to the socket the whole message until finished
     def safe_write(self, client_socket, msg):
