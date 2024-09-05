@@ -4,11 +4,12 @@ import logging
 import signal
 import sys
 
-from common.utils import has_won, load_bets, serialize_winners, store_bets, decode_message, Bet
+from common.utils import has_won, load_bets, prepend_length, serialize_winners, store_bets, decode_message, Bet
 
 BET_BATCH_MESSAGE_LENGTH = 2
 BET_MESSAGE_LENGTH = 2
 FIRST_BYTE_1 = b'\x01'
+NUMBER_OF_AGENCIES = 1
 
 class Server:
     def __init__(self, port, listen_backlog):
@@ -19,6 +20,7 @@ class Server:
         self.stop_processes = False
         self.current_client_socket = None
         signal.signal(signal.SIGTERM, self.graceful_shutdown)
+        self.clients = {}
 
     def graceful_shutdown(self, signum, frame):
         self.stop_processes = True
@@ -37,6 +39,10 @@ class Server:
         """
 
         while not self.stop_processes:
+            if len(self.clients.keys()) == NUMBER_OF_AGENCIES:
+                logging.info("All agencies connected")
+                self.pick_winners()
+                break
             try:
                 self.__accept_new_connection()
                 self.__handle_client_connection()
@@ -86,7 +92,13 @@ class Server:
             # If the first byte is a "1", the client is telling he finished and we should
             #  store the socket connection to inform the client of the winners
             if first_byte == FIRST_BYTE_1:
-                self.pick_winners()
+                # Read one more byte to get the agency id
+                agency_id = self.safe_read(1)
+                agency_id = int(agency_id.decode('utf-8'))
+                if not agency_id:
+                    raise OSError("Connection closed")
+                # Store the socket connection to inform the client of the winners
+                self.clients[agency_id] = self.current_client_socket
         except OSError as e:
             logging.error(f'action: apuesta_recibida | result: fail | cantidad: {len(bets)}')
             logging.error(f"action: receive_message | result: fail | error: {e}") 
@@ -95,8 +107,7 @@ class Server:
             logging.error(f"action: receive_message | result: fail | error: {e}")  
             logging.critical(f'invalid bets found, shutting down connection')
             self.graceful_shutdown(signal.SIGTERM, None)
-        finally:
-            self.current_client_socket.close()
+        
 
 
     def read_bets(self):
@@ -174,10 +185,20 @@ class Server:
         """
         Sends the winners to the client.
         """
+        winners_agency = [winner.agency for winner in winners]
         winners_dni = [winner.document for winner in winners]
-        winners_msg = serialize_winners(winners_dni)
-        length = len(winners_msg).to_bytes(2, 'big')
-        winners_msg = length + winners_msg
-        while len(winners_msg) > 0:
-            sent = self.current_client_socket.send(winners_msg)
-            winners_msg = winners_msg[sent:]
+        dict_agency_dni = {}
+        for agency, dni in zip(winners_agency, winners_dni):
+            if agency not in dict_agency_dni:
+                dict_agency_dni[agency] = []
+            dict_agency_dni[agency].append(dni)
+        serialized_dict = {key: serialize_winners(value) for key, value in dict_agency_dni.items()}
+        msg_dict = {key: prepend_length(value) for key, value in serialized_dict.items()}
+        logging.info(f'current clients: {self.clients}')
+        for agency_id, msg in msg_dict.items():
+            while len(msg) > 0:
+                sent = self.clients[agency_id].send(msg)
+                msg = msg[sent:]
+
+
+    

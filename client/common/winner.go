@@ -10,7 +10,7 @@ type Winners struct {
 	amount    int
 }
 
-func Decode(data []byte) (int, error) {
+func Decode(data []byte) (int, []string, error) {
 	winners := Winners{
 		documents: make([]string, 0),
 		amount:    0,
@@ -22,14 +22,14 @@ func Decode(data []byte) (int, error) {
 		var length uint16
 		err := binary.Read(buf, binary.BigEndian, &length)
 		if err != nil {
-			return -1, err
+			return -1, nil, err
 		}
 
 		// Read the string bytes
 		stringBytes := make([]byte, length)
 		_, err = buf.Read(stringBytes)
 		if err != nil {
-			return -1, err
+			return -1, nil, err
 		}
 
 		// Convert bytes to string and append to the list
@@ -37,5 +37,5 @@ func Decode(data []byte) (int, error) {
 		winners.amount++
 	}
 
-	return winners.amount, nil
+	return winners.amount, winners.documents, nil
 }

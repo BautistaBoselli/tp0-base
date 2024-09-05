@@ -98,3 +98,8 @@ def serialize_winners(winners):
         data += winner.encode('utf-8')
 
     return data
+    
+
+def prepend_length(msg):
+    length = len(msg).to_bytes(2, 'big')
+    return length + msg
