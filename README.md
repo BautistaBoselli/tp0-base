@@ -157,13 +157,17 @@ Ejecutarlo mientras esta levantado el docker-compose y se estan enviando apuesta
 
 ### Ejercicio N°7:
 
-Modificar los clientes para que notifiquen al servidor al finalizar con el envío de todas las apuestas y así proceder con el sorteo.
-Inmediatamente después de la notificacion, los clientes consultarán la lista de ganadores del sorteo correspondientes a su agencia.
-Una vez el cliente obtenga los resultados, deberá imprimir por log: `action: consulta_ganadores | result: success | cant_ganadores: ${CANT}`.
+Para esta parte se tuvieron que cambiar bastantes aspectos del protocolo. Para empezar se tuvo que cambiar la forma de enviar los mensajes, ya que ahora había que avisar al servidor cuando se terminaban de enviar las apuestas, para resolver esto decidi agregar un nuevo campo al mensaje de batches que indica si este es el último o no. Lo logre haciendo que ahora el primer byte actue de forma de booleano de todo el batch y sea 0 si es un batch común y 1 si es el último.
+El cliente a medida que va avanzando en su loop y queda la ultima tanda de apuestas, cambia el primer byte del mensaje a 1 y envía el batch al servidor. Además de esto, en un mensaje aparte pero inmediatamente posterior al del último batch y en la misma conexión, se envía el número de agencia para que luego el servidor pueda asociar la conexion con la agencia que envió las apuestas.
+De esta manera, el servidor lee este primer byte, procesa el resto del batch normalmente y si ese primer byte era un uno, sabe que ese cliente esta esperando al resultado de la lotería y que debe leer un byte más del socket, indicando el número de agencia. Como no puede hacerse el sorteo hasta que todos los clientes hayan enviado sus apuestas, el servidor guarda en un diccionario los sockets de los clientes que enviaron el último batch asociandolos con su nro de agencia como clave y cuando recibe el último batch de un cliente, lo agrega a esta lista. Luego cuando recibe el último batch de todos los clientes, procede a hacer el sorteo y a enviar los resultados a todos los clientes que enviaron el último batch.
+Tambien debido a que empezó a aumentar la cantidad de mensajes distintos del servidor (BET_ACK, ERROR, Ganadores) se decidió protocolizar más los mensajes del server y se opto por uno similar al que usa el cliente al serializar sus mensajes, ahora el servidor manda en los primeros 2 bytes la longitud del mensaje y luego el mensaje en si. Esto facilita mucho la lectura de parte del cliente.
+En cuanto a la lógica de envío de los ganadores desde el servidor al cliente, se implementó una nueva estructura Winners en la cual almacenar tanto los dnis ganadores como la cantidad, que es el valor realmente necesario para loggear. Desde el lado del servidor, se serializo siguiendo el protocolo estandar a lo largo del proyecto. 2 bytes de la longitud total del mensaje y luego 2 bytes de longitud de cada dni y luego el dni en si:
 
-El servidor deberá esperar la notificación de las 5 agencias para considerar que se realizó el sorteo e imprimir por log: `action: sorteo | result: success`.
-Luego de este evento, podrá verificar cada apuesta con las funciones `load_bets(...)` y `has_won(...)` y retornar los DNI de los ganadores de la agencia en cuestión. Antes del sorteo, no podrá responder consultas por la lista de ganadores.
-Las funciones `load_bets(...)` y `has_won(...)` son provistas por la cátedra y no podrán ser modificadas por el alumno.
+```
+<tamaño en bytes del mensaje><tamaño dni1><dni1><tamaño dni2><dni2>...<tamaño dniN><dniN>
+```
+
+Finalmente, tuve que hacer varios cambios en el cliente para poder recibir el resultado del sorteo y que a la vez se pudiera cortar el proceso ante un SIGTERM, permitiendo un graceful shutdown. Para esto, cuando esperamos los resultados, los clientes tenían que escuchar de forma bloqueante sobre la conexión hasta obtener el resultado, pero esto no permitía que se cortara el proceso ante SIGTERM. Para solucionar esto, se utilizaron las go routines que corren de manera asincronica y concurrente, en ella se escucha una posible respuesta del servidor, mientras el cliente puede estar atento a una señal de cierre. Para lograr esto, hay un select que escucha tanto la señal de cierre como la respuesta del servidor obtenida en la go routine. De esta forma, si se recibe la señal de cierre, se cierra el socket y se termina el proceso, y si se recibe la respuesta del servidor, se imprime el mensaje y se termina el proceso.
 
 ## Parte 3: Repaso de Concurrencia
 
