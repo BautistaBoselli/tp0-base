@@ -3,6 +3,7 @@ import socket
 import logging
 import multiprocessing
 import sys
+import time
 
 from common.utils import has_won, load_bets, prepend_length, serialize_winners, store_bets, decode_message, Bet
 
@@ -26,6 +27,7 @@ class Server:
         self.bets_lock = multiprocessing.Lock()
         self.agencies_connected = multiprocessing.Value('i', 0)
         self.agencies_lock = multiprocessing.Lock()
+        self.processes = []
 
     def graceful_shutdown(self, signum, frame):
         self.stop_processes = True
@@ -37,24 +39,35 @@ class Server:
         """
         Concurrent server loop using multiprocessing
         """
-        processes = []
+        self._server_socket.setblocking(False)
+        last_connection_time = time.time()
+        timeout = 5  # 5 seconds timeout
+
         while not self.stop_processes:
             try:
                 client_socket, addr = self._server_socket.accept()
+                last_connection_time = time.time()
                 process = multiprocessing.Process(target=self.__handle_client_connection, args=(client_socket, addr))
-                processes.append(process)
+                self.processes.append(process)
                 process.start()
+            except BlockingIOError:
+                # No incoming connection, check if all agencies are connected
+                with self.agencies_lock:
+                    if self.agencies_connected.value == NUMBER_OF_AGENCIES:
+                        logging.info("All agencies connected")
+                        self.pick_winners()
+                        break
+                    elif time.time() - last_connection_time > timeout:
+                        logging.info("Timeout reached, checking for winners")
+                        self.pick_winners()
+                        break
             except OSError as e:
                 logging.error(f"Error accepting connection: {e}")
-                # break
+                break
 
-            with self.agencies_lock:
-                if self.agencies_connected.value == NUMBER_OF_AGENCIES:
-                    logging.info("All agencies connected")
-                    self.pick_winners()
-                    break
+            time.sleep(0.1)  # Short sleep to prevent busy-waiting
 
-        for process in processes:
+        for process in self.processes:
             process.join()
 
     def __handle_client_connection(self, client_socket, addr):
