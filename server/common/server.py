@@ -9,7 +9,7 @@ from common.utils import has_won, load_bets, prepend_length, serialize_winners, 
 BET_BATCH_MESSAGE_LENGTH = 2
 BET_MESSAGE_LENGTH = 2
 FIRST_BYTE_1 = b'\x01'
-NUMBER_OF_AGENCIES = 1
+NUMBER_OF_AGENCIES = 5
 
 class Server:
     def __init__(self, port, listen_backlog):
