@@ -41,13 +41,10 @@ class Server:
         Concurrent server loop using multiprocessing
         """
         self._server_socket.setblocking(False)
-        last_connection_time = time.time()
-        timeout = 5  # 5 seconds timeout
 
         while not self.stop_processes:
             try:
                 client_socket, addr = self._server_socket.accept()
-                last_connection_time = time.time()
                 process = multiprocessing.Process(target=self.__handle_client_connection, args=(client_socket, addr))
                 self.processes.append(process)
                 process.start()
@@ -56,10 +53,6 @@ class Server:
                 with self.agencies_lock:
                     if self.agencies_connected.value == NUMBER_OF_AGENCIES:
                         logging.info("All agencies connected")
-                        self.pick_winners()
-                        break
-                    elif time.time() - last_connection_time > timeout:
-                        logging.info("Timeout reached, checking for winners")
                         self.pick_winners()
                         break
             except OSError as e:
@@ -76,36 +69,41 @@ class Server:
         """
         self.current_client_socket = client_socket
         try:
-            first_byte = self.safe_read(1)
-            if not first_byte:
-                raise OSError("Connection closed")
-            msg = self.read_bets()
-            bets = self.parse_bets(msg)
-            if not bets:
-                raise ValueError("Invalid message")
-            with self.bets_lock:
-                store_bets(bets)
-            logging.info(f'action: apuesta_recibida | result: success | cantidad: {len(bets)}')
-            # Only first bet in batch is logged, for control purposes
-            Bet.logFields(bets[0], addr[0])
-            self.safe_write("BETS ACK\n")
-            # If the first byte is a "1", the client is telling he finished and we should
-            #  store the socket connection to inform the client of the winners
-            if first_byte == FIRST_BYTE_1:
-                # Read one more byte to get the agency id
-                agency_id = self.safe_read(1)
-                agency_id = int(agency_id.decode('utf-8'))
-                if not agency_id:
+            while True:
+                first_byte = self.safe_read(1)
+                if not first_byte:
                     raise OSError("Connection closed")
-                # Store the socket connection to inform the client of the winners
-                self.clients[agency_id] = client_socket
-                with self.agencies_lock:
-                    self.agencies_connected.value += 1
+                
+                msg = self.read_bets()
+                bets = self.parse_bets(msg)
+                if not bets:
+                    raise ValueError("Invalid message")
+                
+                with self.bets_lock:
+                    store_bets(bets)
+                
+                logging.info(f'action: apuesta_recibida | result: success | cantidad: {len(bets)}')
+                # Only first bet in batch is logged, for control purposes
+                Bet.logFields(bets[0], addr[0])
+                self.safe_write("BETS ACK\n")
+                
+                # If the first byte is a "1", the client is telling he finished
+                if first_byte == FIRST_BYTE_1:
+                    # Read one more byte to get the agency id
+                    agency_id = self.safe_read(1)
+                    agency_id = int(agency_id.decode('utf-8'))
+                    if not agency_id:
+                        raise OSError("Connection closed")
+                    # Store the socket connection to inform the client of the winners
+                    self.clients[agency_id] = client_socket
+                    with self.agencies_lock:
+                        self.agencies_connected.value += 1
+                    break
         except (OSError, ValueError) as e:
             logging.error(f'action: apuesta_recibida | result: fail | cantidad: {len(bets)}')
             logging.error(f"action: receive_message | result: fail | error: {e}") 
         finally:
-            client_socket.close()
+                client_socket.close()
 
     def read_bets(self):
         """

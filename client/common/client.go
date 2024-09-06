@@ -77,12 +77,16 @@ func (c *Client) StartClientLoop() {
 	sigs := make(chan os.Signal, 1)
 	signal.Notify(sigs, syscall.SIGTERM)
 
+	err = c.createClientSocket()
+	if err != nil {
+		log.Criticalf("server socket not found, exiting")
+		return
+	}
+	defer c.conn.Close()
+
 	for len(bets) > 0 {
 		select {
 		case <-sigs:
-			if c.conn != nil {
-				c.conn.Close()
-			}
 			return
 		case <-time.After(c.config.LoopPeriod):
 		default:
@@ -98,27 +102,10 @@ func (c *Client) StartClientLoop() {
 				bytesToSend[0] = 1
 			}
 
-			err = c.createClientSocket()
-			if err != nil {
-				bets = nil
-				log.Criticalf("server socket not found, exiting")
-				c.conn.Close()
-				return
-			}
-
 			err = c.sendMessage(bytesToSend)
 			if err != nil {
 				log.Errorf("action: send_bet_message | result: fail | client_id: %v | error: %v", c.config.ID, err)
 				return
-			}
-
-			if len(bets) == 0 {
-				// Send the client id to the server
-				err = c.sendMessage([]byte(c.config.ID))
-				if err != nil {
-					log.Errorf("action: send_client_id | result: fail | client_id: %v | error: %v", c.config.ID, err)
-					return
-				}
 			}
 
 			serverResponse, err := c.getServerResponse()
@@ -126,16 +113,21 @@ func (c *Client) StartClientLoop() {
 			if string(serverResponse) == "BETS ACK\n" {
 				log.Infof("action: apuesta_enviada | result: success | bets_sent: %d", len(batchToSend.bets))
 				if len(bets) == 0 {
+					// Send the client id to the server
+					err = c.sendMessage([]byte(c.config.ID))
+					if err != nil {
+						log.Errorf("action: send_client_id | result: fail | client_id: %v | error: %v", c.config.ID, err)
+						return
+					}
 					c.waitLotteryResults(sigs)
+					return
 				}
 			}
 
 			if string(serverResponse) == "ERROR\n" {
 				log.Errorf("action: apuesta_enviada | result: fail | bets_sent: %d", len(batchToSend.bets))
-				bets = nil
 				return
 			}
-			c.conn.Close()
 
 			if err != nil {
 				log.Errorf("action: receive_message | result: fail | client_id: %v | error: %v",
@@ -152,7 +144,6 @@ func (c *Client) StartClientLoop() {
 
 			// Wait a time between sending one message and the next one
 			time.Sleep(c.config.LoopPeriod)
-
 		}
 	}
 	log.Infof("action: loop_finished | result: success | client_id: %v", c.config.ID)
