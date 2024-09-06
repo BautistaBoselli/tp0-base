@@ -10,6 +10,7 @@ BET_BATCH_MESSAGE_LENGTH = 2
 BET_MESSAGE_LENGTH = 2
 FIRST_BYTE_1 = b'\x01'
 NUMBER_OF_AGENCIES = 5
+MAX_PROCESSES = 5
 
 class Server:
     def __init__(self, port, listen_backlog):
@@ -27,6 +28,7 @@ class Server:
         self.agencies_connected = multiprocessing.Value('i', 0)
         self.agencies_lock = multiprocessing.Lock()
         self.processes = []
+        self.semaphore = multiprocessing.Semaphore(MAX_PROCESSES + 1)
 
     def graceful_shutdown(self, signum, frame):
         self.stop_processes = True
@@ -44,6 +46,7 @@ class Server:
 
         while not self.stop_processes:
             try:
+                self.semaphore.acquire()
                 client_socket, addr = self._server_socket.accept()
                 process = multiprocessing.Process(target=self.__handle_client_connection, args=(client_socket, addr))
                 self.processes.append(process)
@@ -102,7 +105,10 @@ class Server:
         except (OSError, ValueError) as e:
             logging.error(f'action: apuesta_recibida | result: fail | cantidad: {len(bets)}')
             logging.error(f"action: receive_message | result: fail | error: {e}") 
+            self.semaphore.release()
+            client_socket.close()
         finally:
+                self.semaphore.release()
                 client_socket.close()
 
     def read_bets(self):
