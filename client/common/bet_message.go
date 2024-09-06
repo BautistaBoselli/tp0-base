@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"encoding/binary"
 	"encoding/csv"
+	"io"
 )
 
 type BetMessage struct {
@@ -90,14 +91,17 @@ func (bm *BetMessage) SerializeLength(buf *bytes.Buffer, length int16) error {
 	return nil
 }
 
-func obtainBetMessages(csvReader *csv.Reader, agencyId string) ([]BetMessage, error) {
-	records, err := csvReader.ReadAll()
-	if err != nil {
-		return nil, err
-	}
+func obtainBetMessages(csvReader *csv.Reader, agencyId string, batchAmount int) ([]BetMessage, error) {
+	betMessages := make([]BetMessage, 0, batchAmount)
+	for i := 0; i < batchAmount; i++ {
+		record, err := csvReader.Read()
+		if err == io.EOF {
+			break
+		}
+		if err != nil {
+			return nil, err
+		}
 
-	betMessages := make([]BetMessage, 0, len(records))
-	for _, record := range records {
 		betMessages = append(betMessages, BetMessage{
 			agency:    agencyId,
 			name:      record[0],

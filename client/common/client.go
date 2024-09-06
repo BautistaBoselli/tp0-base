@@ -68,11 +68,6 @@ func (c *Client) StartClientLoop() {
 	defer file.Close()
 
 	csvReader := csv.NewReader(file)
-	bets, err := obtainBetMessages(csvReader, c.config.ID)
-	if err != nil {
-		log.Errorf("action: obtain_bet_messages | result: fail | client_id: %v | error: %v", c.config.ID, err)
-		return
-	}
 
 	sigs := make(chan os.Signal, 1)
 	signal.Notify(sigs, syscall.SIGTERM)
@@ -83,70 +78,77 @@ func (c *Client) StartClientLoop() {
 		return
 	}
 	defer c.conn.Close()
+	lastOne := false
 
-	for len(bets) > 0 {
+	for {
 		select {
 		case <-sigs:
 			return
 		case <-time.After(c.config.LoopPeriod):
 		default:
-			batchToSend, bytesToSend, err := c.getValidData(bets)
-			if err != nil || bytesToSend == nil {
+			bets, err := obtainBetMessages(csvReader, c.config.ID, c.config.BatchMaxAmount)
+			if err != nil {
+				log.Errorf("action: obtain_bet_messages | result: fail | client_id: %v | error: %v", c.config.ID, err)
+				return
+			}
+
+			if len(bets) < c.config.BatchMaxAmount {
+				lastOne = true
+			}
+
+			sliceBytesToSend, err := c.getValidData(bets, lastOne)
+			if err != nil || sliceBytesToSend == nil {
 				log.Errorf("action: serialize_batch | result: fail | client_id: %v | error: %v", c.config.ID, err)
 				return
 			}
-			bets = bets[len(batchToSend.bets):]
+			// bets = bets[len(batchToSend.bets):]
 
-			if len(bets) == 0 {
-				// Replace the first byte with a 1 to indicate the server this is the last batch
-				bytesToSend[0] = 1
-			}
+			// if len(bets) == 0 {
+			// 	// Replace the first byte with a 1 to indicate the server this is the last batch
+			// 	bytesToSend[0] = 1
+			// }
+			for _, bytesToSend := range sliceBytesToSend {
 
-			err = c.sendMessage(bytesToSend)
-			if err != nil {
-				log.Errorf("action: send_bet_message | result: fail | client_id: %v | error: %v", c.config.ID, err)
-				return
-			}
-
-			serverResponse, err := c.getServerResponse()
-
-			if string(serverResponse) == "BETS ACK\n" {
-				log.Infof("action: apuesta_enviada | result: success | bets_sent: %d", len(batchToSend.bets))
-				if len(bets) == 0 {
-					// Send the client id to the server
-					err = c.sendMessage([]byte(c.config.ID))
-					if err != nil {
-						log.Errorf("action: send_client_id | result: fail | client_id: %v | error: %v", c.config.ID, err)
-						return
-					}
-					c.waitLotteryResults(sigs)
+				err = c.sendMessage(bytesToSend)
+				if err != nil {
+					log.Errorf("action: send_bet_message | result: fail | client_id: %v | error: %v", c.config.ID, err)
 					return
 				}
-			}
+				serverResponse, err := c.getServerResponse()
+				if err != nil {
+					log.Errorf("action: receive_message | result: fail | client_id: %v | error: %v", c.config.ID, err)
+					return
+				}
+				if string(serverResponse) == "BETS ACK\n" {
+					log.Infof("action: apuesta_enviada | result: success | bets_sent: %d", len(bets))
+					if lastOne {
+						// Send the client id to the server
+						err = c.sendMessage([]byte(c.config.ID))
+						if err != nil {
+							log.Errorf("action: send_client_id | result: fail | client_id: %v | error: %v", c.config.ID, err)
+							return
+						}
+						c.waitLotteryResults(sigs)
+						return
+					}
+				}
+				if string(serverResponse) == "ERROR\n" {
+					log.Errorf("action: apuesta_enviada | result: fail | bets_sent: %d", len(bets))
+					return
+				}
 
-			if string(serverResponse) == "ERROR\n" {
-				log.Errorf("action: apuesta_enviada | result: fail | bets_sent: %d", len(batchToSend.bets))
-				return
-			}
-
-			if err != nil {
-				log.Errorf("action: receive_message | result: fail | client_id: %v | error: %v",
+				log.Infof("action: receive_message | result: success | client_id: %v | msg: %v",
 					c.config.ID,
-					err,
+					string(serverResponse),
 				)
-				return
-			}
 
-			log.Infof("action: receive_message | result: success | client_id: %v | msg: %v",
-				c.config.ID,
-				string(serverResponse),
-			)
+			}
 
 			// Wait a time between sending one message and the next one
 			time.Sleep(c.config.LoopPeriod)
 		}
+		log.Infof("action: loop_finished | result: success | client_id: %v", c.config.ID)
 	}
-	log.Infof("action: loop_finished | result: success | client_id: %v", c.config.ID)
 }
 
 func (c *Client) sendMessage(bytes []byte) error {
@@ -196,23 +198,34 @@ func (c *Client) getFile() (*os.File, error) {
 	return file, nil
 }
 
-func (c *Client) getValidData(bets []BetMessage) (BetBatch, []byte, error) {
+func (c *Client) getValidData(bets []BetMessage, lastOne bool) ([][]byte, error) {
+	sliceBytesToSend := make([][]byte, 0)
 	batchToSend := NewBetBatch(c.config.BatchMaxAmount, bets)
 	bytesToSend, err := batchToSend.Serialize()
 	if err != nil {
-		return batchToSend, nil, err
+		return nil, err
 	}
-	prevBatchAmount := c.config.BatchMaxAmount
-	for len(bytesToSend) > MAX_BATCH_MESSAGE_SIZE {
-		log.Infof("batch size too big, reducing to %d", prevBatchAmount/2)
-		batchToSend = NewBetBatch(prevBatchAmount/2, bets)
-		bytesToSend, err = batchToSend.Serialize()
-		if err != nil {
-			return batchToSend, nil, err
-		}
-		prevBatchAmount = prevBatchAmount / 2
+
+	// if bytesToSend > MAX_BATCH_MESSAGE_SIZE {
+
+	// prevBatchAmount := c.config.BatchMaxAmount
+	// for len(bytesToSend) > MAX_BATCH_MESSAGE_SIZE {
+	// 	log.Infof("batch size too big, reducing to %d", prevBatchAmount/2)
+	// 	batchToSend = NewBetBatch(prevBatchAmount/2, bets)
+	// 	bytesToSend, err = batchToSend.Serialize()
+	// 	if err != nil {
+	// 		return batchToSend, nil, err
+	// 	}
+	// 	prevBatchAmount = prevBatchAmount / 2
+	// }
+	// return batchToSend, bytesToSend, nil
+
+	if lastOne {
+		bytesToSend[0] = 1
 	}
-	return batchToSend, bytesToSend, nil
+	sliceBytesToSend = append(sliceBytesToSend, bytesToSend)
+
+	return sliceBytesToSend, nil
 }
 
 func (c *Client) getServerResponse() ([]byte, error) {
